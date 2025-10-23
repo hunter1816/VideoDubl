@@ -1,0 +1,5 @@
+{
+  "name": "AI Video Dubber",
+  "description": "An application that takes a video in any language, identifies the language and speaker's voice, and dubs it into Arabic using a similar voice.",
+  "requestFramePermissions": []
+}
