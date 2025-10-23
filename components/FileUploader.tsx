@@ -1,4 +1,3 @@
-
 import React, { useCallback, useState } from 'react';
 
 interface FileUploaderProps {
@@ -51,13 +50,13 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelect, disabl
   }, [disabled, onFileSelect]);
 
   return (
-    <div className={`mt-8 ${disabled ? 'cursor-not-allowed' : ''}`}>
+    <div className={`${disabled ? 'cursor-not-allowed' : ''}`}>
       <label
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
-        className={`flex justify-center w-full h-48 px-4 transition bg-gray-800 border-2 ${isDragging ? 'border-teal-400' : 'border-gray-600'} border-dashed rounded-md appearance-none cursor-pointer hover:border-gray-500 focus:outline-none ${disabled ? 'opacity-50' : ''}`}
+        className={`flex justify-center w-full h-48 px-4 transition bg-gray-800 border-2 ${isDragging ? 'border-teal-400' : 'border-gray-600'} border-dashed rounded-md appearance-none ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-gray-500 focus:outline-none'}`}
       >
         <span className="flex items-center space-x-2">
           <UploadCloudIcon className="w-8 h-8 text-gray-500" />

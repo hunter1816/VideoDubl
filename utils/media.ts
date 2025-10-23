@@ -31,6 +31,49 @@ export const base64ToUint8Array = (base64: string): Uint8Array => {
 }
 
 /**
+ * Encodes a Uint8Array into a base64 string.
+ * @param bytes The Uint8Array to encode.
+ * @returns A base64 encoded string.
+ */
+export const uint8ArrayToBase64 = (bytes: Uint8Array): string => {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return window.btoa(binary);
+}
+
+
+/**
+ * Creates an AudioBuffer from raw PCM data.
+ * Assumes the standard Gemini TTS output: 1-channel, 24000Hz, 16-bit PCM.
+ * @param pcmData The raw PCM audio data as a Uint8Array.
+ * @param ctx The AudioContext to use for creating the buffer.
+ * @returns A promise that resolves with the created AudioBuffer.
+ */
+export const createAudioBufferFromPcm = async (
+  pcmData: Uint8Array,
+  ctx: AudioContext,
+): Promise<AudioBuffer> => {
+    const sampleRate = 24000;
+    const numChannels = 1;
+
+    const dataInt16 = new Int16Array(pcmData.buffer);
+    const frameCount = dataInt16.length / numChannels;
+    const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+    for (let channel = 0; channel < numChannels; channel++) {
+        const channelData = buffer.getChannelData(channel);
+        for (let i = 0; i < frameCount; i++) {
+          channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+        }
+    }
+    return buffer;
+}
+
+
+/**
  * Creates a WAV file Blob from raw PCM audio data.
  * @param pcmData The raw audio data.
  * @param sampleRate The sample rate of the audio (e.g., 24000).
@@ -90,7 +133,7 @@ function writeString(view: DataView, offset: number, str: string) {
  * @param buffer The AudioBuffer to convert.
  * @returns A Uint8Array containing the raw PCM data.
  */
-const audioBufferToPcm = (buffer: AudioBuffer): Uint8Array => {
+export const audioBufferToPcm = (buffer: AudioBuffer): Uint8Array => {
     const numChannels = buffer.numberOfChannels;
     const length = buffer.length * numChannels * 2; // 2 bytes per 16-bit sample
     const result = new Uint8Array(length);
@@ -142,4 +185,95 @@ export const extractAudioFromVideoAsWavBlob = async (videoFile: File): Promise<B
         console.error("Error extracting audio from video:", error);
         throw new Error("Could not extract audio from the provided video file. It might be corrupt or in an unsupported format.");
     }
+};
+
+/**
+ * Merges a video file (from a URL) with a raw PCM audio track into a single video Blob.
+ * @param videoUrl URL of the video file.
+ * @param pcmAudioData The raw PCM audio data.
+ * @returns A Promise that resolves with a Blob of the merged video.
+ */
+export const mergeVideoAndPcmAudio = (videoUrl: string, pcmAudioData: Uint8Array): Promise<Blob> => {
+  return new Promise(async (resolve, reject) => {
+    let audioContext: AudioContext | null = null;
+    let videoElement: HTMLVideoElement | null = null;
+
+    try {
+      // 1. Set up Audio Track from PCM data
+      audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      const audioBuffer = await createAudioBufferFromPcm(pcmAudioData, audioContext);
+      const audioSource = audioContext.createBufferSource();
+      audioSource.buffer = audioBuffer;
+      const destination = audioContext.createMediaStreamDestination();
+      audioSource.connect(destination);
+      const [audioTrack] = destination.stream.getAudioTracks();
+
+      // 2. Set up Video Track from video URL
+      videoElement = document.createElement('video');
+      videoElement.src = videoUrl;
+      videoElement.muted = true;
+
+      videoElement.onloadedmetadata = () => {
+        const stream = (videoElement as any).captureStream() || (videoElement as any).mozCaptureStream();
+        const [videoTrack] = stream.getVideoTracks();
+
+        if (!videoTrack) {
+          reject(new Error("Could not capture video track from source."));
+          return;
+        }
+
+        // 3. Combine tracks into a new stream and record it
+        const combinedStream = new MediaStream([videoTrack, audioTrack]);
+        const chunks: Blob[] = [];
+        const mimeType = 'video/webm; codecs=vp9,opus';
+        const recorder = new MediaRecorder(combinedStream, { mimeType });
+
+        recorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            chunks.push(event.data);
+          }
+        };
+
+        recorder.onstop = () => {
+          const completeBlob = new Blob(chunks, { type: 'video/webm' });
+          
+          videoTrack.stop();
+          audioTrack.stop();
+          if (audioContext && audioContext.state !== 'closed') {
+            audioContext.close();
+          }
+          videoElement?.remove();
+
+          resolve(completeBlob);
+        };
+        
+        recorder.onerror = (event) => {
+            reject((event as any).error || new Error("MediaRecorder encountered an error."));
+        }
+
+        recorder.start();
+        audioSource.start();
+
+        // Stop recording after the audio finishes, with a small buffer
+        setTimeout(() => {
+          if (recorder.state === "recording") {
+            recorder.stop();
+          }
+        }, (audioBuffer.duration + 0.5) * 1000);
+      };
+
+      videoElement.onerror = () => {
+        reject(new Error("Failed to load video metadata for merging."));
+      };
+
+    } catch (error) {
+        if (audioContext && audioContext.state !== 'closed') {
+            audioContext.close();
+        }
+        if (videoElement) {
+            videoElement.remove();
+        }
+        reject(error);
+    }
+  });
 };
