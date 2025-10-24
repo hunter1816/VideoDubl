@@ -73,6 +73,12 @@ const PlayIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
     <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>
 );
 
+const HelpCircleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>
+  </svg>
+);
+
 
 interface RenameConfirmationModalProps {
   oldId: string;
@@ -438,14 +444,20 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                 onCancel={handleCancelRename}
             />
         )}
-       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-green-400 tracking-wider">
-            &gt; Dubbing Studio
-        </h2>
-        <button onClick={onReset} className="hacker-button-default px-4 py-2 text-sm">
-            Start Over
-        </button>
-      </div>
+       <div className="flex justify-between items-center flex-wrap gap-4">
+            <h2 className="text-2xl font-bold text-green-400 tracking-wider">
+                &gt; Dubbing Studio
+            </h2>
+            <div className="flex items-center gap-3">
+                 <button onClick={onRegenerate} disabled={isRegenerating || !dubbedAudioData} className="flex items-center justify-center gap-2 px-4 py-2 font-semibold rounded-md hacker-button-secondary">
+                      {isRegenerating ? <><RefreshCwIcon className="w-5 h-5 animate-spin" /> APPLYING...</> : <><RefreshCwIcon className="w-5 h-5" /> تطبيق جميع التعديلات</>}
+                  </button>
+                <button onClick={onReset} className="hacker-button-default px-4 py-2 text-sm">
+                    Start Over
+                </button>
+            </div>
+        </div>
+
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Left Column: Video & Controls */}
@@ -500,16 +512,44 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                     </div>
 
                     <div>
-                        <h3 className="text-xl font-semibold mb-3 text-green-300 tracking-wider">[ SYNC CALIBRATION ]</h3>
+                        <div className="flex justify-between items-center mb-3">
+                            <h3 className="text-xl font-semibold text-green-300 tracking-wider">[ SYNC CALIBRATION ]</h3>
+                            <button
+                                onClick={() => { setPlaybackRate(1.0); setAudioOffset(0); }}
+                                className="hacker-button-default text-xs px-2 py-1 flex items-center gap-1 rounded-md"
+                                title="Reset sync settings to default"
+                            >
+                                <RefreshCwIcon className="w-3 h-3"/>
+                                Reset Sync
+                            </button>
+                        </div>
+
                         <div className="space-y-4">
                             <div>
-                                <label htmlFor="playback-rate" className="flex justify-between text-sm font-medium text-green-400/80 mb-1">
-                                    <span>Playback Speed</span><span className="bg-black px-2 py-1 rounded-sm">{playbackRate.toFixed(2)}x</span>
+                                <label htmlFor="playback-rate" className="flex justify-between items-center text-sm font-medium text-green-400/80 mb-1">
+                                    <div className="flex items-center gap-2">
+                                        <span>Playback Speed</span>
+                                        <div className="relative group">
+                                            <HelpCircleIcon className="w-4 h-4 text-green-400/50 cursor-help" />
+                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2 text-xs text-center text-white bg-black border border-[var(--border-color)] rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-10">
+                                                Adjusts the video playback speed. The dubbed audio will attempt to match this speed. Useful for reviewing quickly or slowly.
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <span className="bg-black px-2 py-1 rounded-sm">{playbackRate.toFixed(2)}x</span>
                                 </label>
                                 <input id="playback-rate" type="range" min="0.75" max="1.5" step="0.05" value={playbackRate} onChange={(e) => setPlaybackRate(parseFloat(e.target.value))} className="w-full h-2 rounded-lg appearance-none cursor-pointer" />
                             </div>
                             <div>
-                                <label htmlFor="audio-offset" className="block text-sm font-medium text-green-400/80 mb-1">Audio Offset (ms)</label>
+                                <label htmlFor="audio-offset" className="flex items-center gap-2 text-sm font-medium text-green-400/80 mb-1">
+                                    <span>Audio Offset (ms)</span>
+                                    <div className="relative group">
+                                        <HelpCircleIcon className="w-4 h-4 text-green-400/50 cursor-help" />
+                                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2 text-xs text-center text-white bg-black border border-[var(--border-color)] rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-10">
+                                            Shifts the dubbed audio forward (negative values) or backward (positive values) in time. Use this to fine-tune lip-sync.
+                                        </div>
+                                    </div>
+                                </label>
                                 <input id="audio-offset" type="number" step="10" value={audioOffset} onChange={(e) => setAudioOffset(parseInt(e.target.value, 10) || 0)} className="hacker-input text-sm block w-full p-2.5" />
                                 <p className="text-xs text-green-400/60 mt-1">// Positive values delay audio.</p>
                             </div>
@@ -574,14 +614,6 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                   <p className="text-center text-green-400/70">Generating translation...</p>
               )}
             </div>
-            
-            {dubbedAudioData && (
-              <div className="p-4 border-t border-[var(--border-color)]">
-                  <button onClick={onRegenerate} disabled={isRegenerating} className="w-full flex items-center justify-center gap-2 px-4 py-2 font-semibold rounded-md hacker-button-secondary">
-                      {isRegenerating ? <><RefreshCwIcon className="w-5 h-5 animate-spin" /> REGENERATING AUDIO...</> : <><RefreshCwIcon className="w-5 h-5" /> Update Dubbed Audio</>}
-                  </button>
-              </div>
-            )}
         </div>
       </div>
       
