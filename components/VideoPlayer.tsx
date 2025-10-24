@@ -19,7 +19,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoSrc, audioData, p
   const isPlayingRef = useRef(false);
 
   // Refs for synchronization logic
-  const syncIntervalRef = useRef<number | null>(null);
+  const syncRequestRef = useRef<number | null>(null);
   const audioContextStartTimeRef = useRef<number>(0); // When audio playback started, in AudioContext time
   const videoStartTimeRef = useRef<number>(0); // When audio playback started, in audio's own timeline time
   
@@ -98,30 +98,55 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoSrc, audioData, p
         try { sourceNodeRef.current.stop(); } catch(e) { /* Ignore error */ }
         sourceNodeRef.current = null;
       }
-      if (syncIntervalRef.current) {
-        clearInterval(syncIntervalRef.current);
-        syncIntervalRef.current = null;
+      if (syncRequestRef.current) {
+        cancelAnimationFrame(syncRequestRef.current);
+        syncRequestRef.current = null;
       }
     };
 
     // --- Synchronization Logic ---
 
     const syncAudio = () => {
-        if (!isPlayingRef.current || !videoRef.current || !audioContextRef.current) {
+        if (!isPlayingRef.current || !videoRef.current || !audioContextRef.current || !sourceNodeRef.current) {
             return;
         }
 
         const videoTime = videoRef.current.currentTime;
-        // Calculate where the audio *should* be, accounting for its playback rate
-        const audioContextElapsedTime = audioContextRef.current.currentTime - audioContextStartTimeRef.current;
-        const expectedAudioTime = (audioContextElapsedTime * playbackRate) + videoStartTimeRef.current;
-        const drift = videoTime - expectedAudioTime;
+        const audioContextTimeElapsed = audioContextRef.current.currentTime - audioContextStartTimeRef.current;
+
+        // Where the audio *should* be according to the video's current time
+        const targetAudioPosition = videoTime;
+        // Where the audio *actually* is in its own timeline, accounting for its current playback rate
+        const actualAudioPosition = videoStartTimeRef.current + (audioContextTimeElapsed * sourceNodeRef.current.playbackRate.value);
+        const drift = targetAudioPosition - actualAudioPosition;
         
-        // Re-sync if drift is over a threshold (e.g., 150ms)
-        const SYNC_THRESHOLD = 0.15;
-        if (Math.abs(drift) > SYNC_THRESHOLD) {
-            console.warn(`Audio drift of ${Math.round(drift * 1000)}ms detected. Re-syncing.`);
+        const SYNC_THRESHOLD_HARD = 0.25; // 250ms for a hard reset
+        const SYNC_THRESHOLD_SOFT = 0.05; // 50ms to start soft correction
+
+        if (Math.abs(drift) > SYNC_THRESHOLD_HARD) {
+            console.warn(`Large audio drift of ${Math.round(drift * 1000)}ms. Performing hard re-sync.`);
             playAudio(videoTime);
+        } else if (Math.abs(drift) > SYNC_THRESHOLD_SOFT) {
+            // Soft correction: adjust audio playback rate slightly to catch up/slow down
+            const correctionFactor = drift * 0.5; // Proportional controller (P-controller)
+            const newPlaybackRate = playbackRate + correctionFactor;
+            
+            // Clamp the rate to avoid extreme, noticeable changes
+            const maxRate = playbackRate * 1.1;
+            const minRate = playbackRate * 0.9;
+            sourceNodeRef.current.playbackRate.value = Math.max(minRate, Math.min(maxRate, newPlaybackRate));
+        } else {
+            // Drift is acceptable, return to the user-defined playback rate if we've deviated
+            if (sourceNodeRef.current.playbackRate.value !== playbackRate) {
+                sourceNodeRef.current.playbackRate.value = playbackRate;
+            }
+        }
+    };
+
+    const syncLoop = () => {
+        syncAudio();
+        if (isPlayingRef.current) {
+            syncRequestRef.current = window.requestAnimationFrame(syncLoop);
         }
     };
 
@@ -131,13 +156,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoSrc, audioData, p
       isPlayingRef.current = true;
       playAudio(video.currentTime);
       // Start a periodic check to correct for drift
-      if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
-      syncIntervalRef.current = window.setInterval(syncAudio, 500);
+      if (syncRequestRef.current) cancelAnimationFrame(syncRequestRef.current);
+      syncRequestRef.current = window.requestAnimationFrame(syncLoop);
     };
 
     const handlePauseOrEnd = () => {
       isPlayingRef.current = false;
-      stopAudio(); // Stops audio and clears the sync interval
+      stopAudio(); // Stops audio and cancels the sync loop
     };
 
     const handleSeeked = () => {
@@ -155,7 +180,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoSrc, audioData, p
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePauseOrEnd);
     video.addEventListener('ended', handlePauseOrEnd);
-    video.addEventListener('seeked', handleSeeked); // Use 'seeked' for better performance
+    video.addEventListener('seeked', handleSeeked);
     video.addEventListener('volumechange', enforceMute);
 
     // If sync props change while the video is playing, immediately apply the changes

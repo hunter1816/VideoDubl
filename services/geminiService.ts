@@ -219,48 +219,71 @@ export async function generateAudioClip(
     voiceName: string,
     voiceSample?: { data: string; mimeType: string }
 ): Promise<string> {
+    if (!text || !text.trim()) {
+        return "";
+    }
     const ai = getAiInstance();
-    let request: any;
 
+    // --- Attempt 1: Voice Cloning (if sample is provided) ---
     if (voiceSample) {
-        // Attempt voice cloning with the provided sample
-        request = {
+        const cloningRequest = {
             model: "gemini-2.5-flash-preview-tts",
-            contents: {
-                parts: [
-                    { inlineData: { mimeType: voiceSample.mimeType, data: voiceSample.data } },
-                    { text: `Using the provided audio sample as a voice reference, please say the following text in a natural tone: "${text}"` }
-                ]
-            },
+            contents: [{ parts: [{ text }] }],
             config: {
-                responseModalities: [Modality.AUDIO],
-            },
-        };
-    } else {
-        // Use a pre-built voice
-        const ttsPrompt = `Speak in an appropriate tone: ${text}`;
-        request = {
-            model: "gemini-2.5-flash-preview-tts",
-            contents: [{ parts: [{ text: ttsPrompt }] }],
-            config: {
-                responseModalities: [Modality.AUDIO],
+                responseModalities: [Modality.AUDIO] as Modality[],
                 speechConfig: {
                     voiceConfig: {
                         prebuiltVoiceConfig: { voiceName },
-                    },
+                        customVoice: {
+                            source: {
+                                inlineData: {
+                                    data: voiceSample.data,
+                                    mimeType: voiceSample.mimeType,
+                                }
+                            }
+                        }
+                    }
                 },
             },
         };
+        try {
+            const response = await ai.models.generateContent(cloningRequest);
+            const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+            if (audioData) {
+                return audioData; // Success on first attempt
+            }
+            console.warn(`Voice cloning attempt for text: "${text}" returned no audio data. Proceeding to fallback.`);
+        } catch (cloningError) {
+            console.warn(`Voice cloning attempt for text: "${text}" failed with an error. Proceeding to fallback.`, cloningError);
+        }
     }
 
-    const response = await ai.models.generateContent(request);
+    // --- Attempt 2: Fallback to Pre-built Voice Only ---
+    const fallbackRequest = {
+        model: "gemini-2.5-flash-preview-tts",
+        contents: [{ parts: [{ text }] }],
+        config: {
+            responseModalities: [Modality.AUDIO] as Modality[],
+            speechConfig: {
+                voiceConfig: {
+                    prebuiltVoiceConfig: { voiceName },
+                },
+            },
+        },
+    };
 
-    const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!audioData) {
-        console.warn(`TTS API returned no audio for text: "${text}"`);
-        return ""; // Return empty string for failed clips
+    try {
+        const response = await ai.models.generateContent(fallbackRequest);
+        const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (!audioData) {
+            console.warn(`TTS API returned no audio for text on fallback: "${text}"`);
+            return "";
+        }
+        return audioData;
+    } catch (fallbackError) {
+        console.error(`TTS API fallback failed for text "${text}" with voice "${voiceName}". Error:`, fallbackError);
+        return ""; // Return empty on API error to not break the entire dubbing process
     }
-    return audioData;
 }
 
 
@@ -285,13 +308,21 @@ export async function generateDubbedAudio(
         const clipPromises = translatedSegments.map(segment => {
             const speaker = speakerMap.get(segment.speakerId);
             if (!speaker || (speaker.gender !== 'male' && speaker.gender !== 'female')) {
-                return Promise.resolve(""); // Skip segments with unknown speakers/genders
+                // This case should be rare due to pre-filtering, but as a safeguard:
+                console.warn(`Skipping segment for unknown or invalid-gender speaker: ${segment.speakerId}`);
+                return Promise.resolve("");
             }
+            
             const voiceName = voiceSelection[speaker.id];
-            if (!voiceName && !voiceSampleData) {
+
+            // CRITICAL: A pre-built voice must be selected for every speaker.
+            // If no voice is selected, the TTS API call will fail. This check prevents
+            // attempting to generate audio with an invalid configuration.
+            if (!voiceName) {
                 console.warn(`No voice selected for speaker ${speaker.id}, skipping segment.`);
                 return Promise.resolve("");
             }
+
             return generateAudioClip(segment.text, voiceName, voiceSampleData);
         });
 
