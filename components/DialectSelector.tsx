@@ -8,20 +8,18 @@ interface DialectSelectorProps {
 }
 
 export const DialectSelector: React.FC<DialectSelectorProps> = ({ selectedDialect, onDialectChange, disabled }) => {
-  const baseClasses = "px-4 py-2 text-sm font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-teal-500 disabled:opacity-50 disabled:cursor-not-allowed";
-  const activeClasses = "bg-teal-600 text-white";
-  const inactiveClasses = "bg-gray-700 text-gray-300 hover:bg-gray-600";
+  const baseClasses = "hacker-button-primary px-4 py-2 text-sm font-medium transition-colors duration-200 focus:outline-none";
 
   return (
     <div>
-      <h3 className="text-lg font-semibold mb-2 text-gray-100">Dubbing Dialect</h3>
-      <p className="text-sm text-gray-400 mb-3">Choose the Arabic dialect for the final audio track.</p>
+      <h3 className="text-lg font-semibold mb-2 text-green-300 tracking-wider">[ DUBBING DIALECT ]</h3>
+      <p className="text-sm text-green-400/70 mb-3">// Select Arabic dialect for output.</p>
       <div className="inline-flex rounded-md shadow-sm" role="group">
         <button
           type="button"
           onClick={() => onDialectChange('standard')}
           disabled={disabled}
-          className={`${baseClasses} rounded-l-lg ${selectedDialect === 'standard' ? activeClasses : inactiveClasses}`}
+          className={`${baseClasses} rounded-l-md ${selectedDialect === 'standard' ? 'active' : ''}`}
         >
           الفصحى (Standard)
         </button>
@@ -29,7 +27,7 @@ export const DialectSelector: React.FC<DialectSelectorProps> = ({ selectedDialec
           type="button"
           onClick={() => onDialectChange('egyptian')}
           disabled={disabled}
-          className={`${baseClasses} rounded-r-lg ${selectedDialect === 'egyptian' ? activeClasses : inactiveClasses}`}
+          className={`${baseClasses} rounded-r-md ${selectedDialect === 'egyptian' ? 'active' : ''}`}
         >
           العامية المصرية (Egyptian)
         </button>

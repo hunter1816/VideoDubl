@@ -1,7 +1,5 @@
 import React from 'react';
-
-// For now, only Arabic is supported.
-type TargetLanguage = 'arabic';
+import type { TargetLanguage } from '../types';
 
 interface TargetLanguageSelectorProps {
   selectedLanguage: TargetLanguage;
@@ -9,29 +7,34 @@ interface TargetLanguageSelectorProps {
   disabled: boolean;
 }
 
+const LANGUAGES: { key: TargetLanguage; label: string }[] = [
+    { key: 'arabic', label: 'Arabic' },
+    { key: 'spanish', label: 'Spanish' },
+    { key: 'french', label: 'French' },
+];
+
 export const TargetLanguageSelector: React.FC<TargetLanguageSelectorProps> = ({ selectedLanguage, onLanguageChange, disabled }) => {
-  const baseClasses = "px-4 py-2 text-sm font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-teal-500 disabled:opacity-50 disabled:cursor-not-allowed";
-  
+  const baseClasses = "hacker-button-primary px-4 py-2 text-sm font-medium transition-colors duration-200 focus:outline-none";
+
   return (
     <div>
-      <h3 className="text-lg font-semibold mb-2 text-gray-100">Target Language</h3>
-      <p className="text-sm text-gray-400 mb-3">Choose the language to dub the video into.</p>
+      <h3 className="text-lg font-semibold mb-2 text-green-300 tracking-wider">[ TARGET LANGUAGE ]</h3>
+      <p className="text-sm text-green-400/70 mb-3">// Select language for dubbing.</p>
       <div className="inline-flex rounded-md shadow-sm" role="group">
-        <button
-          type="button"
-          disabled={disabled}
-          className={`${baseClasses} rounded-l-lg bg-teal-600 text-white`}
-        >
-          Arabic
-        </button>
-        <button
-          type="button"
-          disabled={true}
-          className={`${baseClasses} rounded-r-lg bg-gray-700 text-gray-400 hover:bg-gray-600`}
-          title="More languages coming soon!"
-        >
-          More (Soon)
-        </button>
+        {LANGUAGES.map((lang, index) => (
+            <button
+                key={lang.key}
+                type="button"
+                onClick={() => onLanguageChange(lang.key)}
+                disabled={disabled}
+                className={`${baseClasses} 
+                    ${index === 0 ? 'rounded-l-md' : ''} 
+                    ${index === LANGUAGES.length - 1 ? 'rounded-r-md' : 'border-r-0'}
+                    ${selectedLanguage === lang.key ? 'active' : ''}`}
+            >
+                {lang.label}
+            </button>
+        ))}
       </div>
     </div>
   );

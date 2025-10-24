@@ -1,14 +1,13 @@
-
 import type { Step } from './types';
 
 export const STEPS: Step[] = [
   { key: 'analyzing', label: 'Analyzing Audio, Detecting Language & Speakers' },
-  { key: 'translating', label: 'Translating to Arabic' },
-  { key: 'dubbing', label: 'Generating Arabic Dub' },
+  { key: 'translating', label: 'Translating Text' },
+  { key: 'dubbing', label: 'Generating Dubbed Audio' },
   { key: 'done', label: 'Processing Complete' },
 ];
 
-export const ARABIC_VOICES: {
+export const TTS_VOICES: {
     male: { name: string; label: string }[];
     female: { name: string; label: string }[];
 } = {

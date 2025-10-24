@@ -1,10 +1,16 @@
-import React, { useState } from 'react';
-import type { AnalysisResult, TranscriptionSegment } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import type { AnalysisResult, TranscriptionSegment, TargetLanguage } from '../types';
 import { VideoPlayer } from './VideoPlayer';
 import { base64ToUint8Array, createWavBlobFromPcm, createAudioBufferFromPcm, mergeVideoAndPcmAudio } from '../utils/media';
-import { ARABIC_VOICES } from '../constants';
+import { TTS_VOICES } from '../constants';
 import { generateAudioClip } from '../services/geminiService';
 
+const EditIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+        <path d="m15 5 4 4"/>
+    </svg>
+);
 
 interface ResultDisplayProps {
   videoUrl: string;
@@ -13,9 +19,11 @@ interface ResultDisplayProps {
   originalAudioUrl: string | null;
   voiceSelection: Record<string, string>;
   onVoiceChange: (speakerId: string, voiceName: string) => void;
+  onSpeakerRename: (oldId: string, newId: string) => void;
   onRegenerate: () => void;
   isRegenerating: boolean;
   isVoiceCloningActive: boolean;
+  targetLanguage: TargetLanguage;
 }
 
 const DownloadIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -44,6 +52,77 @@ const formatTime = (seconds: number) => {
     return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${millis.toString().padStart(3, '0')}`;
 };
 
+interface EditableSpeakerNameProps {
+    speakerId: string;
+    onRename: (newId: string) => void;
+    isEditingDisabled: boolean;
+}
+
+const EditableSpeakerName: React.FC<EditableSpeakerNameProps> = ({ speakerId, onRename, isEditingDisabled }) => {
+    const [isEditing, setIsEditing] = useState(false);
+    const [currentName, setCurrentName] = useState(speakerId);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        setCurrentName(speakerId);
+    }, [speakerId]);
+
+    useEffect(() => {
+        if (isEditing) {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+        }
+    }, [isEditing]);
+    
+    const handleConfirm = () => {
+        const trimmedName = currentName.trim();
+        if (trimmedName && trimmedName !== speakerId) {
+            onRename(trimmedName);
+        }
+        setIsEditing(false);
+    };
+    
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            handleConfirm();
+        } else if (e.key === 'Escape') {
+            setCurrentName(speakerId);
+            setIsEditing(false);
+        }
+    };
+
+    if (isEditing) {
+        return (
+            <input
+                ref={inputRef}
+                type="text"
+                value={currentName}
+                onChange={(e) => setCurrentName(e.target.value)}
+                onBlur={handleConfirm}
+                onKeyDown={handleKeyDown}
+                className="font-medium text-green-300 bg-black rounded px-2 py-1 -ml-2 w-full hacker-input"
+                disabled={isEditingDisabled}
+                aria-label="Edit speaker name"
+            />
+        );
+    }
+
+    return (
+        <div className="flex items-center gap-2">
+            <span className="font-medium text-green-300">{speakerId}</span>
+            <button 
+                onClick={() => !isEditingDisabled && setIsEditing(true)} 
+                disabled={isEditingDisabled} 
+                className="text-gray-400 hover:text-white disabled:opacity-50 p-1 -m-1 rounded-full"
+                title="Edit speaker name"
+                aria-label={`Edit name for ${speakerId}`}
+            >
+                <EditIcon className="w-4 h-4" />
+            </button>
+        </div>
+    );
+};
+
 export const ResultDisplay: React.FC<ResultDisplayProps> = ({ 
     videoUrl, 
     dubbedAudioData, 
@@ -51,15 +130,20 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
     originalAudioUrl,
     voiceSelection,
     onVoiceChange,
+    onSpeakerRename,
     onRegenerate,
     isRegenerating,
-    isVoiceCloningActive
+    isVoiceCloningActive,
+    targetLanguage
 }) => {
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const [audioOffset, setAudioOffset] = useState(0); // in milliseconds
   const [previewingSpeaker, setPreviewingSpeaker] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<Record<string, string | null>>({});
   const [isDownloadingVideo, setIsDownloadingVideo] = useState(false);
+  const [previewMode, setPreviewMode] = useState<'dubbed' | 'original'>('dubbed');
+  
+  const targetLanguageDisplay = targetLanguage.charAt(0).toUpperCase() + targetLanguage.slice(1);
 
   const handleDubbedDownload = () => {
     if (!dubbedAudioData) return;
@@ -102,7 +186,7 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
       const url = URL.createObjectURL(videoBlob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'dubbed_video.mp4';
+      a.download = 'dubbed_video.webm'; // WebM is more reliable for MediaRecorder output
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -146,77 +230,111 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
         
         source.onended = () => {
             audioContext.close().catch(console.error);
+            setPreviewingSpeaker(null);
         };
 
     } catch (err) {
         console.error("Failed to generate preview audio:", err);
         const message = err instanceof Error ? err.message : "Audio preview failed.";
         setPreviewError(prev => ({ ...prev, [speakerId]: message }));
-        // Automatically clear the error message after 4 seconds
         setTimeout(() => setPreviewError(prev => ({ ...prev, [speakerId]: null })), 4000);
-    } finally {
         setPreviewingSpeaker(null);
     }
   };
+  
+  const baseClasses = "hacker-button-primary px-4 py-2 text-sm font-medium transition-colors duration-200 focus:outline-none";
 
   return (
-    <div className="mt-8 p-6 bg-gray-800 rounded-lg shadow-lg animate-fade-in border border-gray-700">
-      <h2 className="text-2xl font-bold mb-4 text-teal-400">
-        {dubbedAudioData ? 'Dubbing Complete!' : 'Analysis Complete'}
+    <div className="mt-8 p-6 hacker-container rounded-md animate-fade-in">
+      <h2 className="text-2xl font-bold mb-4 text-green-400 tracking-wider">
+        {dubbedAudioData ? '>> PROCESS COMPLETE: OUTPUT READY' : '>> ANALYSIS COMPLETE: AWAITING COMMAND'}
       </h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
           {dubbedAudioData ? (
-            <>
-              <h3 className="text-xl font-semibold mb-2 text-gray-200">Dubbed Video (Arabic)</h3>
-              <VideoPlayer 
-                videoSrc={videoUrl} 
-                audioData={dubbedAudioData}
-                playbackRate={playbackRate}
-                audioOffset={audioOffset}
-              />
-            </>
+            <div className='mb-4'>
+                <h3 className="text-xl font-semibold mb-3 text-green-300 tracking-wider">[ VIDEO PREVIEW ]</h3>
+                <div className="inline-flex rounded-md shadow-sm mb-4" role="group">
+                    <button
+                        type="button"
+                        onClick={() => setPreviewMode('dubbed')}
+                        className={`${baseClasses} rounded-l-md ${previewMode === 'dubbed' ? 'active' : ''}`}
+                    >
+                        Dubbed Version ({targetLanguageDisplay})
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setPreviewMode('original')}
+                        className={`${baseClasses} rounded-r-md ${previewMode === 'original' ? 'active' : ''}`}
+                    >
+                        Original Version
+                    </button>
+                </div>
+                
+                {previewMode === 'dubbed' ? (
+                    <VideoPlayer 
+                        videoSrc={videoUrl} 
+                        audioData={dubbedAudioData}
+                        playbackRate={playbackRate}
+                        audioOffset={audioOffset}
+                    />
+                ) : (
+                    <video
+                        key={videoUrl}
+                        src={videoUrl}
+                        controls
+                        playsInline
+                        className="w-full h-auto rounded-md shadow-2xl border border-[var(--border-color)]"
+                    />
+                )}
+            </div>
           ) : (
             <>
-              <h3 className="text-xl font-semibold mb-2 text-gray-200">Original Video</h3>
+              <h3 className="text-xl font-semibold mb-2 text-green-300 tracking-wider">[ ORIGINAL VIDEO ]</h3>
               <video
                   src={videoUrl}
                   controls
                   playsInline
-                  className="w-full h-auto rounded-lg shadow-2xl"
+                  className="w-full h-auto rounded-md shadow-2xl border border-[var(--border-color)]"
               />
             </>
           )}
         </div>
         <div className="space-y-4">
           <div>
-            <h3 className="text-xl font-semibold mb-2 text-gray-200">Voice Configuration</h3>
-            <div className="bg-gray-700/50 p-4 rounded-md space-y-3 text-gray-300">
+            <h3 className="text-xl font-semibold mb-2 text-green-300 tracking-wider">[ VOICE CONFIGURATION ]</h3>
+            <div className="p-4 rounded-md space-y-3 hacker-container border-0">
                  <div>
-                    <p className="text-sm mb-3 text-gray-400">Detected Language: <span className="font-mono bg-gray-600 px-2 py-1 rounded">{analysisResult.language}</span></p>
+                    <p className="text-sm mb-3 text-green-400/70">Detected Language: <span className="bg-black px-2 py-1 rounded">{analysisResult.language}</span></p>
                     
                     {isVoiceCloningActive && (
-                        <div className="p-3 mb-3 text-sm text-center bg-blue-900/50 border border-blue-700 rounded-md text-blue-300">
-                            <p><strong>Voice cloning active.</strong> The uploaded voice sample will be used for all speakers.</p>
+                        <div className="p-3 mb-3 text-sm text-center border rounded-md text-cyan-300 border-cyan-500/50 bg-cyan-900/20">
+                            <p><strong>Voice cloning active.</strong> Uploaded sample will be used for all speakers.</p>
                         </div>
                     )}
 
-                    <span className="font-semibold">Assign a voice for each speaker ({analysisResult.speakers.length}):</span>
+                    <span className="font-semibold text-green-300">Assign voice profile ({analysisResult.speakers.length} found):</span>
                      <ul className="mt-2 space-y-3">
                         {analysisResult.speakers.map(speaker => {
-                            const voiceOptions = speaker.gender === 'male' ? ARABIC_VOICES.male : ARABIC_VOICES.female;
+                            const voiceOptions = speaker.gender === 'male' ? TTS_VOICES.male : TTS_VOICES.female;
                             const isPreviewing = previewingSpeaker === speaker.id;
                             
                             return (
-                                <li key={speaker.id} className={`text-sm p-3 bg-gray-800/60 rounded-md space-y-2 ${isVoiceCloningActive ? 'opacity-60' : ''}`}>
-                                    <div>
-                                        <span className="font-medium text-gray-200">{speaker.id}</span>
-                                        <span className="text-xs text-gray-400 ml-2 capitalize">({speaker.gender})</span>
-                                        {typeof speaker.confidence === 'number' && (
-                                            <span className="font-mono text-xs text-gray-500 ml-2">
-                                                ({(speaker.confidence * 100).toFixed(0)}% confidence)
-                                            </span>
-                                        )}
+                                <li key={speaker.id} className={`text-sm p-3 hacker-container border rounded-md space-y-2 ${isVoiceCloningActive ? 'opacity-60' : ''}`}>
+                                    <div className="flex justify-between items-center">
+                                        <EditableSpeakerName
+                                            speakerId={speaker.id}
+                                            onRename={(newId) => onSpeakerRename(speaker.id, newId)}
+                                            isEditingDisabled={isRegenerating || isVoiceCloningActive}
+                                        />
+                                        <div className="flex-shrink-0">
+                                            <span className="text-xs text-gray-400 capitalize">({speaker.gender})</span>
+                                            {typeof speaker.confidence === 'number' && (
+                                                <span className="text-xs text-gray-500 ml-2">
+                                                    ({(speaker.confidence * 100).toFixed(0)}% conf)
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <select
@@ -225,7 +343,7 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                                             onChange={(e) => onVoiceChange(speaker.id, e.target.value)}
                                             disabled={isRegenerating || isPreviewing || isVoiceCloningActive}
                                             aria-label={`Select voice for ${speaker.id}`}
-                                            className="flex-grow bg-gray-600 border border-gray-500 text-white text-sm rounded-lg focus:ring-teal-500 focus:border-teal-500 block p-2 disabled:cursor-not-allowed"
+                                            className="hacker-select flex-grow text-sm block p-2 disabled:cursor-not-allowed"
                                         >
                                             {voiceOptions.map(voice => (
                                                 <option key={voice.name} value={voice.name}>{voice.label}</option>
@@ -234,7 +352,7 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                                         <button
                                             onClick={() => handlePreview(speaker.id)}
                                             disabled={isRegenerating || isPreviewing || !voiceSelection[speaker.id] || isVoiceCloningActive}
-                                            className="px-3 py-2 bg-gray-600 text-white text-sm font-semibold rounded-lg hover:bg-gray-500 transition-colors duration-200 disabled:bg-gray-700 disabled:cursor-not-allowed flex items-center justify-center w-28"
+                                            className="hacker-button-default px-3 py-2 text-sm font-semibold rounded-md flex items-center justify-center w-28"
                                         >
                                             {isPreviewing ? (
                                                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -259,17 +377,17 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
           {dubbedAudioData && (
             <>
                 <div>
-                    <h3 className="text-xl font-semibold mb-2 text-gray-200">Dubbing Control</h3>
-                    <div className="bg-gray-700/50 p-4 rounded-md">
+                    <h3 className="text-xl font-semibold mb-2 text-green-300 tracking-wider">[ DUBBING CONTROL ]</h3>
+                    <div className="p-4 rounded-md hacker-container border-0">
                         <button
                             onClick={onRegenerate}
                             disabled={isRegenerating}
-                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500 transition-colors duration-200 disabled:bg-blue-800 disabled:cursor-not-allowed"
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2 font-semibold rounded-md hacker-button-secondary"
                         >
                             {isRegenerating ? (
                                 <>
                                     <RefreshCwIcon className="w-5 h-5 animate-spin" />
-                                    Updating Audio...
+                                    REGENERATING AUDIO...
                                 </>
                             ) : (
                                 <>
@@ -282,42 +400,42 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                 </div>
               
                 <div>
-                    <h3 className="text-xl font-semibold mb-2 text-gray-200">Downloads</h3>
+                    <h3 className="text-xl font-semibold mb-2 text-green-300 tracking-wider">[ DOWNLOAD ASSETS ]</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         <button
                             onClick={handleDubbedVideoDownload}
                             disabled={!dubbedAudioData || isDownloadingVideo}
-                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-teal-500 transition-colors duration-200 disabled:bg-teal-800 disabled:cursor-not-allowed"
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2 font-semibold rounded-md hacker-button-primary"
                         >
                             <FilmIcon className="w-5 h-5" />
-                            {isDownloadingVideo ? 'Preparing...' : 'Dubbed Video (.mp4)'}
+                            {isDownloadingVideo ? 'COMPILING...' : 'Dubbed Video'}
                         </button>
                         <button
                             onClick={handleDubbedDownload}
                             disabled={!dubbedAudioData}
-                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-gray-500 transition-colors duration-200 disabled:bg-gray-700 disabled:cursor-not-allowed"
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2 font-semibold rounded-md hacker-button-default"
                         >
                             <DownloadIcon className="w-5 h-5" />
-                            Dubbed Audio (.wav)
+                            Dubbed Audio
                         </button>
                         <button
                             onClick={handleOriginalDownload}
                             disabled={!originalAudioUrl}
-                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-gray-500 transition-colors duration-200 disabled:bg-gray-700 disabled:cursor-not-allowed"
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2 font-semibold rounded-md hacker-button-default"
                         >
                             <DownloadIcon className="w-5 h-5" />
-                            Original Audio (.wav)
+                            Original Audio
                         </button>
                     </div>
                 </div>
 
                 <div>
-                    <h3 className="text-xl font-semibold mb-2 text-gray-200">Audio Synchronization</h3>
-                    <div className="bg-gray-700/50 p-4 rounded-md space-y-4">
+                    <h3 className="text-xl font-semibold mb-2 text-green-300 tracking-wider">[ SYNC CALIBRATION ]</h3>
+                    <div className="p-4 rounded-md space-y-4 hacker-container border-0">
                         <div>
-                            <label htmlFor="playback-rate" className="flex justify-between text-sm font-medium text-gray-300 mb-1">
+                            <label htmlFor="playback-rate" className="flex justify-between text-sm font-medium text-green-400/80 mb-1">
                                 <span>Playback Speed</span>
-                                <span className="font-mono bg-gray-600 px-2 py-1 rounded-sm">{playbackRate.toFixed(2)}x</span>
+                                <span className="bg-black px-2 py-1 rounded-sm">{playbackRate.toFixed(2)}x</span>
                             </label>
                             <input
                                 id="playback-rate"
@@ -327,20 +445,20 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                                 step="0.05"
                                 value={playbackRate}
                                 onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
-                                className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-teal-500"
+                                className="w-full h-2 rounded-lg appearance-none cursor-pointer"
                             />
                         </div>
                         <div>
-                            <label htmlFor="audio-offset" className="block text-sm font-medium text-gray-300 mb-1">Audio Offset (ms)</label>
+                            <label htmlFor="audio-offset" className="block text-sm font-medium text-green-400/80 mb-1">Audio Offset (ms)</label>
                             <input
                                 id="audio-offset"
                                 type="number"
                                 step="10"
                                 value={audioOffset}
                                 onChange={(e) => setAudioOffset(parseInt(e.target.value, 10) || 0)}
-                                className="bg-gray-600 border border-gray-500 text-white text-sm rounded-lg focus:ring-teal-500 focus:border-teal-500 block w-full p-2.5"
+                                className="hacker-input text-sm block w-full p-2.5"
                             />
-                             <p className="text-xs text-gray-400 mt-1">Positive values play audio later, negative values play it earlier.</p>
+                             <p className="text-xs text-green-400/60 mt-1">// Positive values delay audio, negative values advance it.</p>
                         </div>
                     </div>
                 </div>
@@ -348,14 +466,14 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
           )}
 
           <div>
-            <h3 className="text-xl font-semibold mb-2 text-gray-200">Original Transcription</h3>
-            <div className="bg-gray-700/50 p-4 rounded-md text-gray-300 max-h-60 overflow-y-auto text-sm font-mono">
+            <h3 className="text-xl font-semibold mb-2 text-green-300 tracking-wider">[ ORIGINAL TRANSCRIPTION LOG ]</h3>
+            <div className="p-4 rounded-md max-h-60 overflow-y-auto text-sm hacker-container border-0 font-mono">
               {analysisResult.transcription.map((segment, index) => (
                 <div key={index} className="mb-2">
-                    <p className="text-teal-400">
-                        [{formatTime(segment.startTime)} → {formatTime(segment.endTime)}] {segment.speakerId}:
+                    <p className="text-cyan-400">
+                        [{formatTime(segment.startTime)} &gt; {formatTime(segment.endTime)}] {segment.speakerId}:
                     </p>
-                    <p className="pl-2 text-gray-200">{segment.text}</p>
+                    <p className="pl-2 text-green-300">{segment.text}</p>
                 </div>
               ))}
             </div>

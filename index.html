@@ -1,12 +1,14 @@
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI Video Dubber</title>
+    <title>AI Video Dubber :: SYS.Dubber.v2.5</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
   <script type="importmap">
 {
   "imports": {
@@ -17,8 +19,151 @@
   }
 }
 </script>
+<style>
+  :root {
+    --bg-color: #0A0A0A;
+    --text-color: #00FF41;
+    --text-dim-color: rgba(0, 255, 65, 0.6);
+    --primary-color: #00FF41;
+    --secondary-color: #00E5FF;
+    --border-color: rgba(0, 255, 65, 0.3);
+    --border-hover-color: rgba(0, 255, 65, 0.8);
+    --container-bg: rgba(10, 25, 20, 0.2);
+  }
+
+  @keyframes flicker {
+    0%, 100% { opacity: 1; text-shadow: 0 0 5px var(--primary-color), 0 0 10px var(--primary-color); }
+    50% { opacity: 0.8; text-shadow: 0 0 5px var(--primary-color), 0 0 15px var(--primary-color); }
+  }
+  
+  @keyframes scanline {
+    0% { background-position: 0 0; }
+    100% { background-position: 0 100%; }
+  }
+
+  @keyframes blink-caret {
+    from, to { border-color: transparent }
+    50% { border-color: var(--primary-color); }
+  }
+
+  .blinking-cursor::after {
+    content: '_';
+    animation: blink-caret 1s step-end infinite;
+    font-weight: bold;
+    margin-left: 4px;
+  }
+
+  body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: 'Share Tech Mono', monospace;
+    overflow-y: scroll;
+    position: relative;
+  }
+  
+  body::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: 
+      linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+      linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+    background-size: 100% 3px, 5px 100%;
+    z-index: -1;
+    pointer-events: none;
+    animation: scanline 15s linear infinite;
+  }
+
+  .hacker-title {
+    animation: flicker 2s infinite;
+  }
+  
+  .hacker-container {
+    background-color: var(--container-bg);
+    border: 1px solid var(--border-color);
+    backdrop-filter: blur(2px);
+    box-shadow: 0 0 15px rgba(0, 255, 65, 0.1);
+  }
+
+  .hacker-input, .hacker-select {
+    background-color: rgba(0,0,0,0.5) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--text-color) !important;
+    transition: all 0.2s ease;
+    border-radius: 4px;
+  }
+  .hacker-input:focus, .hacker-select:focus {
+    outline: none;
+    box-shadow: 0 0 10px var(--primary-color);
+    border-color: var(--border-hover-color) !important;
+  }
+
+  .hacker-button-primary, .hacker-button-secondary, .hacker-button-default {
+      border: 1px solid var(--border-color);
+      background-color: transparent;
+      transition: all 0.2s ease;
+      color: var(--text-dim-color);
+  }
+  .hacker-button-primary:hover:not(:disabled), .hacker-button-primary.active {
+      background-color: rgba(0, 255, 65, 0.1);
+      color: var(--primary-color);
+      border-color: var(--border-hover-color);
+      box-shadow: 0 0 10px var(--primary-color);
+  }
+  .hacker-button-secondary:hover:not(:disabled), .hacker-button-secondary.active {
+      background-color: rgba(0, 229, 255, 0.1);
+      color: var(--secondary-color);
+      border-color: var(--secondary-color);
+      box-shadow: 0 0 10px var(--secondary-color);
+  }
+  .hacker-button-default:hover:not(:disabled) {
+      background-color: rgba(200, 200, 200, 0.1);
+      color: #fff;
+      border-color: rgba(200, 200, 200, 0.5);
+  }
+  .hacker-button-primary:disabled, .hacker-button-secondary:disabled, .hacker-button-default:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 2px;
+    background: var(--border-color);
+    outline: none;
+    opacity: 0.7;
+    transition: opacity .2s;
+  }
+  input[type="range"]:hover {
+    opacity: 1;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    background: var(--primary-color);
+    cursor: pointer;
+    border-radius: 0;
+    box-shadow: 0 0 5px var(--primary-color);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    background: var(--primary-color);
+    cursor: pointer;
+    border-radius: 0;
+    border: none;
+    box-shadow: 0 0 5px var(--primary-color);
+  }
+</style>
 </head>
-  <body class="bg-gray-900 text-white">
+  <body>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

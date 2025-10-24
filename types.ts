@@ -2,6 +2,8 @@ export type ProcessStep = 'idle' | 'analyzing' | 'translating' | 'dubbing' | 'do
 
 export type Dialect = 'standard' | 'egyptian';
 
+export type TargetLanguage = 'arabic' | 'spanish' | 'french';
+
 export interface SpeakerProfile {
   id: string; // e.g., "Speaker 1"
   gender: 'male' | 'female' | 'unknown';

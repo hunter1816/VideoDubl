@@ -12,13 +12,13 @@ export const Header: React.FC = () => {
   return (
     <header className="text-center">
       <div className="flex items-center justify-center gap-4 mb-4">
-        <FilmIcon className="w-10 h-10 text-teal-400"/>
-        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-teal-400 to-blue-500">
+        <FilmIcon className="w-10 h-10 text-green-400"/>
+        <h1 className="hacker-title text-4xl sm:text-5xl font-bold tracking-widest text-green-400">
           AI Video Dubber
         </h1>
       </div>
-      <p className="text-lg text-gray-400 max-w-2xl mx-auto">
-        قم بتحميل مقطع فيديو، وبشكل اختياري عينة صوتية. سيقوم الذكاء الاصطناعي بترجمته ودبلجته إلى اللغة العربية، إما بصوت مشابه أو بصوت مستنسخ.
+      <p className="text-lg text-green-400/70 max-w-2xl mx-auto">
+        &gt; أدخل ملف الفيديو لتحليل وبدء عملية الدبلجة الفورية. النظام فعال.
       </p>
     </header>
   );

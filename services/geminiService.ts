@@ -1,15 +1,24 @@
 import { GoogleGenAI, Modality, Type } from '@google/genai';
-import type { SpeakerProfile, TranscriptionSegment, Dialect } from '../types';
+import type { SpeakerProfile, TranscriptionSegment, Dialect, TargetLanguage } from '../types';
 import { fileToBase64, base64ToUint8Array, createAudioBufferFromPcm, audioBufferToPcm, uint8ArrayToBase64 } from '../utils/media';
 
-if (!process.env.API_KEY) {
-  throw new Error("API_KEY environment variable not set");
+let ai: GoogleGenAI;
+
+function getAiInstance(): GoogleGenAI {
+    if (!ai) {
+        if (!process.env.API_KEY) {
+            // This should not be reached if the UI check is in place, but serves as a safeguard.
+            throw new Error("API_KEY environment variable not set. This application cannot function without it.");
+        }
+        ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    }
+    return ai;
 }
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export async function analyzeVideo(videoFile: File): Promise<{ speakers: SpeakerProfile[], transcription: TranscriptionSegment[], language: string }> {
   try {
+    const ai = getAiInstance();
     const videoBase64 = await fileToBase64(videoFile);
     
     const prompt = `You are an expert audio analyst and transcriptionist. Your task is to analyze the audio from this video and produce a highly accurate, structured JSON output.
@@ -117,24 +126,51 @@ Your response MUST be a single, valid JSON object with "language", "speakers", a
 export async function translateText(
     segments: TranscriptionSegment[],
     sourceLanguage: string,
-    dialect: Dialect
+    targetLanguage: TargetLanguage,
+    dialect: Dialect | null
 ): Promise<TranscriptionSegment[]> {
    try {
-    const dialectInstruction = dialect === 'egyptian' 
-        ? "colloquial Egyptian Arabic (العامية المصرية)" 
-        : "Modern Standard Arabic (الفصحى)";
-        
-    const culturalNuance = dialect === 'egyptian'
-        ? "Pay close attention to cultural nuances and use common Egyptian idioms and expressions to make the dialogue sound authentic and natural."
-        : "Ensure the translation is formal, clear, and grammatically correct according to the rules of Modern Standard Arabic.";
+    const ai = getAiInstance();
+    let targetLanguageDescription: string;
+    let culturalNuance: string;
 
-    const prompt = `You are an expert translator specializing in video dubbing scripts. Your task is to translate the "text" of each segment in the provided JSON array from ${sourceLanguage} into high-quality, natural-sounding ${dialectInstruction}.
+    switch (targetLanguage) {
+        case 'spanish':
+            targetLanguageDescription = 'Spanish';
+            culturalNuance = "Aim for a neutral Latin American Spanish unless the context implies a specific region. The translation must sound natural when spoken, avoiding overly literal or academic phrasing. Adapt sentence length to fit the rhythm of a conversation.";
+            break;
+        case 'french':
+            targetLanguageDescription = 'French';
+            culturalNuance = "Translate into standard, modern French. Pay close attention to context to choose the correct level of formality (vous vs. tu). The final text should be fluid and idiomatic, as if originally spoken by a native French speaker.";
+            break;
+        case 'arabic':
+        default:
+            targetLanguageDescription = dialect === 'egyptian' 
+                ? "colloquial Egyptian Arabic (العامية المصرية)" 
+                : "Modern Standard Arabic (الفصحى)";
+            culturalNuance = dialect === 'egyptian'
+                ? "Pay close attention to cultural nuances and use common Egyptian idioms and expressions to make the dialogue sound authentic and natural."
+                : "Ensure the translation is formal, clear, and grammatically correct according to the rules of Modern Standard Arabic.";
+            break;
+    }
 
-**Key Instructions:**
-1.  **Maintain Context:** The segments are part of a continuous conversation. Translate them in context to ensure coherence and accuracy.
-2.  **Natural Phrasing:** Avoid literal, word-for-word translations. The final text should flow naturally as if it were originally spoken in Arabic.
-3.  **Dialect-Specific Nuances:** ${culturalNuance}
-4.  **Preserve Structure:** You MUST return a valid JSON array with the exact same structure as the input. Only the value of the "text" field in each object should be changed. Do not alter "speakerId", "startTime", or "endTime".
+    const prompt = `You are an expert linguist specializing in creating high-quality dubbing scripts for video. Your task is to translate the "text" of each segment in the provided JSON array from ${sourceLanguage} into natural-sounding, performable ${targetLanguageDescription}.
+
+**CRITICAL Directives for Dubbing:**
+
+1.  **Lip-Sync & Timing is Key**: This is NOT a simple text translation. The translated text must be spoken in roughly the same amount of time as the original.
+    *   **ADAPT, DON'T JUST TRANSLATE**: If a direct translation is too long or too short, you MUST rephrase it to fit the time constraints implied by the original text's length. Condense or elaborate as needed while preserving the core meaning.
+    *   The goal is a script that an actor can perform in sync with the on-screen character.
+
+2.  **Preserve Tone & Emotion**: Analyze the original text to understand the speaker's emotion (e.g., sarcastic, urgent, happy, sad). The translation MUST convey the same emotional tone.
+
+3.  **Natural, Spoken Dialogue**: The output should sound like real people talking, not like a formal document.
+    *   **Use Colloquialisms & Idioms**: Employ common, natural-sounding phrases and idioms appropriate for ${targetLanguageDescription}.
+    *   **Language-Specific Nuances**: ${culturalNuance}
+
+4.  **Maintain Contextual Integrity**: The segments are part of a continuous conversation. Ensure your translations are consistent and flow logically from one segment to the next.
+
+5.  **Strict JSON Formatting**: You MUST return a valid JSON array with the exact same structure as the input. Only modify the "text" field in each object. Do not alter "speakerId", "startTime", or "endTime".
 
 **Input JSON to Translate:**
 ---
@@ -183,7 +219,7 @@ export async function generateAudioClip(
     voiceName: string,
     voiceSample?: { data: string; mimeType: string }
 ): Promise<string> {
-    
+    const ai = getAiInstance();
     let request: any;
 
     if (voiceSample) {

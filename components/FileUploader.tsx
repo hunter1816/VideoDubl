@@ -56,12 +56,12 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelect, disabl
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
-        className={`flex justify-center w-full h-48 px-4 transition bg-gray-800 border-2 ${isDragging ? 'border-teal-400' : 'border-gray-600'} border-dashed rounded-md appearance-none ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-gray-500 focus:outline-none'}`}
+        className={`flex justify-center w-full h-48 px-4 transition bg-transparent border-2 ${isDragging ? 'border-green-400 border-solid shadow-[0_0_15px_var(--primary-color)]' : 'border-[var(--border-color)]'} border-dashed rounded-md appearance-none ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-green-400/70'}`}
       >
         <span className="flex items-center space-x-2">
-          <UploadCloudIcon className="w-8 h-8 text-gray-500" />
-          <span className="font-medium text-gray-400">
-            Drop video to attach, or <span className="text-teal-400 underline">browse</span>
+          <UploadCloudIcon className="w-8 h-8 text-green-400/70" />
+          <span className="font-medium text-green-400/70">
+            Drop video file here, or <span className="text-green-400 underline">browse system</span>
           </span>
         </span>
         <input type="file" name="file_upload" className="hidden" accept="video/*" onChange={handleFileChange} disabled={disabled} />

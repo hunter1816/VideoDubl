@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 interface ErrorDisplayProps {
@@ -14,11 +13,11 @@ const AlertTriangleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 
 export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({ message }) => {
   return (
-    <div className="mt-8 p-4 bg-red-900/50 border border-red-600 rounded-lg flex items-start space-x-3">
+    <div className="mt-8 p-4 bg-black border border-red-500 rounded-md flex items-start space-x-3 shadow-[0_0_15px_rgba(255,0,0,0.5)]">
       <AlertTriangleIcon className="h-6 w-6 text-red-400 flex-shrink-0 mt-1" />
       <div>
-        <h3 className="font-semibold text-red-300">An Error Occurred</h3>
-        <p className="text-red-400">{message}</p>
+        <h3 className="font-semibold text-red-300">[ SYSTEM ERROR ]</h3>
+        <p className="text-red-400">&gt; {message}</p>
       </div>
     </div>
   );

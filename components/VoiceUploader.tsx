@@ -40,20 +40,20 @@ export const VoiceUploader: React.FC<VoiceUploaderProps> = ({ selectedFile, onFi
   };
 
   return (
-    <div className={`pt-6 border-t border-gray-700 ${disabled ? 'cursor-not-allowed' : ''}`}>
-      <h3 className="text-lg font-semibold mb-2 text-gray-100">Upload Voice Sample <span className="text-sm text-gray-500">(Optional)</span></h3>
-      <p className="text-sm text-gray-400 mb-3">For more accurate voice cloning, provide a 15-30 second audio clip of a speaker's voice.</p>
+    <div className={`pt-6 border-t border-[var(--border-color)] ${disabled ? 'cursor-not-allowed' : ''}`}>
+      <h3 className="text-lg font-semibold mb-2 text-green-300 tracking-wider">[ VOICE CLONING SAMPLE ] <span className="text-sm text-green-400/50">(Optional)</span></h3>
+      <p className="text-sm text-green-400/70 mb-3">// Upload 15-30s audio for high-fidelity voice cloning.</p>
       
       {selectedFile ? (
-        <div className="flex items-center justify-between w-full h-16 px-4 bg-gray-700 border-2 border-gray-600 rounded-md">
+        <div className="flex items-center justify-between w-full h-16 px-4 bg-green-900/20 border-2 border-[var(--border-color)] rounded-md">
           <div className="flex items-center space-x-3">
-            <FileIcon className="w-6 h-6 text-gray-400 flex-shrink-0" />
-            <span className="font-medium text-gray-300 truncate">{selectedFile.name}</span>
+            <FileIcon className="w-6 h-6 text-green-400/80 flex-shrink-0" />
+            <span className="font-medium text-green-300 truncate">{selectedFile.name}</span>
           </div>
           <button
             onClick={handleRemove}
             disabled={disabled}
-            className="p-1 text-gray-400 rounded-full hover:bg-gray-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-700 focus:ring-teal-500 disabled:opacity-50"
+            className="p-1 text-gray-400 rounded-full hover:bg-gray-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-700 focus:ring-red-500 disabled:opacity-50"
             aria-label="Remove selected file"
           >
             <XIcon className="w-5 h-5" />
@@ -61,12 +61,12 @@ export const VoiceUploader: React.FC<VoiceUploaderProps> = ({ selectedFile, onFi
         </div>
       ) : (
         <label
-          className={`flex justify-center w-full h-16 px-4 transition bg-gray-800 border-2 border-gray-600 border-dashed rounded-md appearance-none cursor-pointer hover:border-gray-500 focus:outline-none ${disabled ? 'opacity-50' : ''}`}
+          className={`flex justify-center w-full h-16 px-4 transition bg-transparent border-2 border-[var(--border-color)] border-dashed rounded-md appearance-none cursor-pointer hover:border-green-400/70 focus:outline-none ${disabled ? 'opacity-50' : ''}`}
         >
           <span className="flex items-center space-x-2">
-            <MicIcon className="w-6 h-6 text-gray-500" />
-            <span className="font-medium text-gray-400">
-              Select an audio file for voice cloning...
+            <MicIcon className="w-6 h-6 text-green-400/70" />
+            <span className="font-medium text-green-400/70">
+              Select audio sample...
             </span>
           </span>
           <input 
