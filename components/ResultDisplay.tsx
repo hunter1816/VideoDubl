@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import type { AnalysisResult, TranscriptionSegment, TargetLanguage } from '../types';
+import type { AnalysisResult, TranscriptionSegment, TargetLanguage, SpeakerProfile } from '../types';
 import { VideoPlayer } from './VideoPlayer';
 import { base64ToUint8Array, createWavBlobFromPcm, createAudioBufferFromPcm, mergeVideoAndPcmAudio } from '../utils/media';
 import { TTS_VOICES } from '../constants';
@@ -26,7 +25,16 @@ const DownloadIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 );
 
 const FilmIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg>
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect width="18" height="18" x="3" y="3" rx="2"/>
+        <path d="M7 3v18"/>
+        <path d="M3 7.5h4"/>
+        <path d="M3 12h18"/>
+        <path d="M3 16.5h4"/>
+        <path d="M17 3v18"/>
+        <path d="M17 7.5h4"/>
+        <path d="M17 16.5h4"/>
+    </svg>
 );
 
 const RefreshCwIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -79,6 +87,29 @@ const HelpCircleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   </svg>
 );
 
+const PlusCircleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+);
+
+const ArrowUpIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+);
+
+const ArrowDownIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+);
+
+const LocateFixedIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/>
+      <line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/>
+      <circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/>
+    </svg>
+);
+
+const ArrowLeftIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+);
 
 interface RenameConfirmationModalProps {
   oldId: string;
@@ -129,7 +160,11 @@ interface ResultDisplayProps {
   dubbedAudioData: string | null;
   analysisResult: AnalysisResult & { translatedTranscription?: TranscriptionSegment[] };
   editedTranslation: TranscriptionSegment[] | null;
-  onTranslationChange: (index: number, newText: string) => void;
+  onTranslationChange: (index: number, updatedFields: Partial<TranscriptionSegment>) => void;
+  onAddNewSegment: () => void;
+  onSegmentReorder: (index: number, direction: 'up' | 'down') => void;
+  voiceOverrides: Record<number, string>;
+  onVoiceOverrideChange: (index: number, voiceName: string | null) => void;
   originalAudioUrl: string | null;
   voiceSelection: Record<string, string>;
   onVoiceChange: (speakerId: string, voiceName: string) => void;
@@ -233,6 +268,10 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
     analysisResult, 
     editedTranslation,
     onTranslationChange,
+    onAddNewSegment,
+    onSegmentReorder,
+    voiceOverrides,
+    onVoiceOverrideChange,
     originalAudioUrl,
     voiceSelection,
     onVoiceChange,
@@ -251,12 +290,59 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
   const [isDownloadingVideo, setIsDownloadingVideo] = useState(false);
   const [previewMode, setPreviewMode] = useState<'dubbed' | 'original'>('dubbed');
   const [renameConfirmation, setRenameConfirmation] = useState<{oldId: string, newId: string} | null>(null);
-
-  // Section visibility states
-  const [isConfigExpanded, setIsConfigExpanded] = useState(false);
-  const [isTranscriptionExpanded, setIsTranscriptionExpanded] = useState(false);
+  const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null);
   
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const editorScrollRef = useRef<HTMLDivElement>(null);
+  const prevTranslationLength = useRef(editedTranslation?.length ?? 0);
+  
+  useEffect(() => {
+    const currentLength = editedTranslation?.length ?? 0;
+    if (currentLength > prevTranslationLength.current) {
+        // A segment was added, scroll to the bottom.
+        const timer = setTimeout(() => {
+            if (editorScrollRef.current) {
+                editorScrollRef.current.scrollTo({
+                    top: editorScrollRef.current.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }
+        }, 100); // Delay to allow DOM update
+        return () => clearTimeout(timer);
+    }
+    prevTranslationLength.current = currentLength;
+  }, [editedTranslation]);
+
   const targetLanguageDisplay = targetLanguage.charAt(0).toUpperCase() + targetLanguage.slice(1);
+
+  const handleTimeUpdate = (currentTime: number) => {
+    if (!editedTranslation) return;
+    const currentIndex = editedTranslation.findIndex(
+        segment => currentTime >= segment.startTime && currentTime < segment.endTime
+    );
+    setActiveSegmentIndex(currentIndex > -1 ? currentIndex : null);
+  };
+
+  const handleSegmentClick = (startTime: number) => {
+      if (videoRef.current) {
+          videoRef.current.currentTime = startTime;
+          if (videoRef.current.paused) {
+              videoRef.current.play().catch(console.error);
+          }
+      }
+  };
+
+  const handleSetTime = (index: number, type: 'start' | 'end') => {
+      if (videoRef.current) {
+          const currentTime = videoRef.current.currentTime;
+          if (type === 'start') {
+              onTranslationChange(index, { startTime: currentTime });
+          } else {
+              onTranslationChange(index, { endTime: currentTime });
+          }
+      }
+  };
+
 
   const handleRequestRename = (oldId: string, newId: string) => {
     if (!newId || oldId === newId) {
@@ -379,10 +465,10 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
     }
   };
   
-  const handleSegmentPreview = async (segment: TranscriptionSegment) => {
+  const handleSegmentPreview = async (segment: TranscriptionSegment, voiceOverride?: string) => {
     setPreviewingSegment(segment.startTime);
     try {
-        const voiceName = voiceSelection[segment.speakerId];
+        const voiceName = voiceOverride || voiceSelection[segment.speakerId];
         if (!voiceName && !isVoiceCloningActive) throw new Error("No voice assigned.");
 
         const audioBase64 = await generateAudioClip(segment.text, voiceName);
@@ -406,6 +492,8 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
   };
   
   const buttonBaseClasses = "hacker-button-primary px-4 py-2 text-sm font-medium transition-colors duration-200 focus:outline-none";
+  const [isConfigExpanded, setIsConfigExpanded] = useState(false);
+  const [isTranscriptionExpanded, setIsTranscriptionExpanded] = useState(false);
 
   const CollapsibleSection: React.FC<{
     title: string;
@@ -445,24 +533,25 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
             />
         )}
        <div className="flex justify-between items-center flex-wrap gap-4">
-            <h2 className="text-2xl font-bold text-green-400 tracking-wider">
-                &gt; Dubbing Studio
-            </h2>
+            <div className="flex items-center gap-4">
+                 <button onClick={onReset} className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md hacker-button-default" title="Return to upload a new video">
+                    <ArrowLeftIcon className="w-5 h-5" />
+                    <span>New Upload</span>
+                </button>
+                <h2 className="text-2xl font-bold text-green-400 tracking-wider">
+                    &gt; Dubbing Studio
+                </h2>
+            </div>
             <div className="flex items-center gap-3">
                  <button onClick={onRegenerate} disabled={isRegenerating || !dubbedAudioData} className="flex items-center justify-center gap-2 px-4 py-2 font-semibold rounded-md hacker-button-secondary">
-                      {isRegenerating ? <><RefreshCwIcon className="w-5 h-5 animate-spin" /> APPLYING...</> : <><RefreshCwIcon className="w-5 h-5" /> تطبيق جميع التعديلات</>}
+                      {isRegenerating ? <><RefreshCwIcon className="w-5 h-5 animate-spin" /> APPLYING...</> : <><RefreshCwIcon className="w-5 h-5" /> Apply All Edits</>}
                   </button>
-                <button onClick={onReset} className="hacker-button-default px-4 py-2 text-sm">
-                    Start Over
-                </button>
             </div>
         </div>
 
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        {/* Left Column: Video & Controls */}
         <div className="lg:col-span-3 hacker-container rounded-md p-4 space-y-6">
-            {/* Video Player Section */}
             <div>
               {dubbedAudioData ? (
                 <div>
@@ -476,7 +565,22 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                         </button>
                     </div>
                     {previewMode === 'dubbed' ? (
-                        <VideoPlayer videoSrc={videoUrl} audioData={dubbedAudioData} playbackRate={playbackRate} audioOffset={audioOffset} />
+                        <>
+                            <video
+                                ref={videoRef}
+                                src={videoUrl}
+                                controls
+                                playsInline
+                                className="w-full h-auto rounded-lg shadow-2xl"
+                                onTimeUpdate={(e) => handleTimeUpdate(e.currentTarget.currentTime)}
+                            />
+                            <VideoPlayer 
+                                videoRef={videoRef} 
+                                audioData={dubbedAudioData} 
+                                playbackRate={playbackRate} 
+                                audioOffset={audioOffset} 
+                            />
+                        </>
                     ) : (
                         <video key={videoUrl} src={videoUrl} controls playsInline className="w-full h-auto rounded-md shadow-2xl border border-[var(--border-color)]" />
                     )}
@@ -490,7 +594,6 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
               )}
             </div>
 
-            {/* Controls Section */}
             {dubbedAudioData && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-[var(--border-color)]">
                     <div>
@@ -560,51 +663,140 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
         </div>
 
 
-        {/* Right Column: Editor */}
         <div className="lg:col-span-2 hacker-container rounded-md flex flex-col max-h-[80vh]">
             <div className="p-4 border-b border-[var(--border-color)] flex justify-between items-center">
               <h3 className="text-xl font-semibold text-green-300 tracking-wider flex items-center gap-3">
                 <LanguagesIcon className="w-6 h-6 text-green-400/70"/>
                 Translation Editor
               </h3>
-              <button onClick={handleExportSrt} disabled={!editedTranslation} className="hacker-button-default px-3 py-1 text-sm flex items-center gap-2" title="Export as SRT file">
-                  <FileDownIcon className="w-4 h-4" />
-                  <span>SRT</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={onAddNewSegment} disabled={isRegenerating} className="hacker-button-default px-3 py-1 text-sm flex items-center gap-2" title="Add new translation segment">
+                    <PlusCircleIcon className="w-4 h-4" />
+                    <span>Add Segment</span>
+                </button>
+                <button onClick={handleExportSrt} disabled={!editedTranslation} className="hacker-button-default px-3 py-1 text-sm flex items-center gap-2" title="Export as SRT file">
+                    <FileDownIcon className="w-4 h-4" />
+                    <span>SRT</span>
+                </button>
+              </div>
             </div>
             
-            <div className="flex-grow overflow-y-auto p-4">
+            <div ref={editorScrollRef} className="flex-grow overflow-y-auto p-4">
               {editedTranslation ? (
                   <ul className="space-y-4">
                       {editedTranslation.map((segment, index) => {
-                          const originalSegment = analysisResult.transcription.find(t => t.startTime === segment.startTime && t.speakerId === segment.speakerId) || { text: 'N/A' };
-                          const isPreviewing = previewingSegment === segment.startTime;
+                          const originalSegment = analysisResult.transcription.find(t => t.startTime === segment.startTime && t.speakerId === segment.speakerId);
+                          const speaker = analysisResult.speakers.find(s => s.id === segment.speakerId);
+                          const defaultVoiceName = voiceSelection[segment.speakerId];
+                          const defaultVoice = speaker ? TTS_VOICES[speaker.gender]?.find(v => v.name === defaultVoiceName) : null;
+                          const defaultVoiceLabel = defaultVoice ? defaultVoice.label : "Default";
+
                           return (
-                              <li key={`${segment.speakerId}-${segment.startTime}`} className="p-3 border border-[var(--border-color)] rounded-md bg-black/20">
-                                  <div className="flex justify-between items-center mb-2">
-                                      <p className="text-cyan-400 text-sm font-mono">
-                                          <span className="font-bold text-cyan-300">{segment.speakerId}</span> @ [{formatTime(segment.startTime)}]
-                                      </p>
+                              <li 
+                                  key={`${segment.speakerId}-${segment.startTime}-${index}`} 
+                                  onClick={() => handleSegmentClick(segment.startTime)}
+                                  className={`p-3 border rounded-md bg-black/20 space-y-3 cursor-pointer transition-all duration-200 hover:border-cyan-400/50 ${index === activeSegmentIndex ? 'border-cyan-400 shadow-[0_0_10px_var(--secondary-color)]' : 'border-[var(--border-color)]'}`}
+                              >
+                                  <div className="flex justify-between items-start">
+                                      <div className="flex items-center gap-2 flex-grow">
+                                          <label htmlFor={`speaker-select-${index}`} className="text-sm font-medium text-cyan-300 flex-shrink-0">Speaker:</label>
+                                          <select
+                                              id={`speaker-select-${index}`}
+                                              value={segment.speakerId}
+                                              onChange={(e) => onTranslationChange(index, { speakerId: e.target.value })}
+                                              onClick={(e) => e.stopPropagation()} // Prevent li click when changing speaker
+                                              disabled={isRegenerating}
+                                              className="hacker-select flex-grow text-sm p-1"
+                                              aria-label={`Select speaker for segment ${index + 1}`}
+                                          >
+                                              {analysisResult.speakers.map(sp => (
+                                                  <option key={sp.id} value={sp.id}>
+                                                      {sp.id}
+                                                  </option>
+                                              ))}
+                                          </select>
+                                      </div>
+                                      <div className="flex items-center gap-1 ml-2">
+                                          <button
+                                              onClick={(e) => { e.stopPropagation(); onSegmentReorder(index, 'up'); }}
+                                              disabled={isRegenerating || index === 0}
+                                              className="hacker-button-default p-1.5 disabled:opacity-30"
+                                              title="Move segment up"
+                                          >
+                                              <ArrowUpIcon className="w-4 h-4" />
+                                          </button>
+                                          <button
+                                              onClick={(e) => { e.stopPropagation(); onSegmentReorder(index, 'down'); }}
+                                              disabled={isRegenerating || !editedTranslation || index === editedTranslation.length - 1}
+                                              className="hacker-button-default p-1.5 disabled:opacity-30"
+                                              title="Move segment down"
+                                          >
+                                              <ArrowDownIcon className="w-4 h-4" />
+                                          </button>
+                                      </div>
                                   </div>
-                                  <div className="grid grid-cols-1 gap-2">
-                                      <p className="text-green-400/70 text-sm bg-black p-2 rounded-md">{originalSegment.text}</p>
-                                      <textarea
-                                          value={segment.text}
-                                          onChange={(e) => onTranslationChange(index, e.target.value)}
-                                          disabled={isRegenerating}
-                                          className="hacker-input w-full p-2 text-base rounded-md"
-                                          rows={3}
-                                          lang="ar"
-                                          dir="rtl"
-                                          aria-label={`Edit translation for segment ${index + 1}`}
-                                      />
-                                      <button onClick={() => handleSegmentPreview(segment)} disabled={isRegenerating || isPreviewing} className="hacker-button-default px-3 py-2 text-sm font-semibold rounded-md flex items-center justify-center gap-2 self-end w-32">
-                                          {isPreviewing ? (
-                                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                          ) : (
-                                              <><PlayIcon className="w-4 h-4" /> Preview</>
-                                          )}
-                                      </button>
+
+                                  <div className="flex items-center gap-4 text-sm font-mono">
+                                    <div className="flex items-center gap-2">
+                                      <label htmlFor={`start-time-${index}`} className="text-green-400/80">Start:</label>
+                                      <div className="flex items-center gap-1">
+                                        <input 
+                                            type="number" id={`start-time-${index}`} value={segment.startTime.toFixed(3)}
+                                            onChange={(e) => onTranslationChange(index, { startTime: parseFloat(e.target.value) || 0 })}
+                                            onBlur={(e) => { e.target.value = (parseFloat(e.target.value) || 0).toFixed(3); }}
+                                            onClick={(e) => e.stopPropagation()} step="0.01" min="0"
+                                            className="hacker-input w-24 p-1 text-center" disabled={isRegenerating}
+                                        />
+                                        <button onClick={(e) => { e.stopPropagation(); handleSetTime(index, 'start'); }} className="hacker-button-default p-1.5" title="Set start time from video"><LocateFixedIcon className="w-4 h-4" /></button>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <label htmlFor={`end-time-${index}`} className="text-green-400/80">End:</label>
+                                      <div className="flex items-center gap-1">
+                                        <input 
+                                            type="number" id={`end-time-${index}`} value={segment.endTime.toFixed(3)}
+                                            onChange={(e) => onTranslationChange(index, { endTime: parseFloat(e.target.value) || 0 })}
+                                            onBlur={(e) => { e.target.value = (parseFloat(e.target.value) || 0).toFixed(3); }}
+                                            onClick={(e) => e.stopPropagation()} step="0.01" min={segment.startTime}
+                                            className="hacker-input w-24 p-1 text-center" disabled={isRegenerating}
+                                        />
+                                        <button onClick={(e) => { e.stopPropagation(); handleSetTime(index, 'end'); }} className="hacker-button-default p-1.5" title="Set end time from video"><LocateFixedIcon className="w-4 h-4" /></button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  
+                                  {originalSegment && <p className="text-green-400/70 text-sm bg-black p-2 rounded-md font-sans">"{originalSegment.text}"</p>}
+                                  
+                                  <textarea
+                                      value={segment.text}
+                                      onChange={(e) => onTranslationChange(index, { text: e.target.value })}
+                                      onClick={(e) => e.stopPropagation()}
+                                      disabled={isRegenerating}
+                                      className="hacker-input w-full p-2 text-base rounded-md"
+                                      rows={3} lang="ar" dir="rtl"
+                                      aria-label={`Edit translation for segment ${index + 1}`}
+                                  />
+
+                                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                    <select
+                                        id={`voice-override-${index}`}
+                                        value={voiceOverrides[index] || 'default'}
+                                        onChange={(e) => onVoiceOverrideChange(index, e.target.value === 'default' ? null : e.target.value)}
+                                        disabled={isRegenerating}
+                                        className="hacker-select flex-grow text-sm p-2"
+                                        aria-label={`Override voice for segment ${index + 1}`}
+                                    >
+                                      <option value="default">Default ({defaultVoiceLabel})</option>
+                                      <optgroup label="Male Voices">
+                                        {TTS_VOICES.male.map(voice => <option key={voice.name} value={voice.name}>{voice.label}</option>)}
+                                      </optgroup>
+                                      <optgroup label="Female Voices">
+                                        {TTS_VOICES.female.map(voice => <option key={voice.name} value={voice.name}>{voice.label}</option>)}
+                                      </optgroup>
+                                    </select>
+                                    <button onClick={() => handleSegmentPreview(segment, voiceOverrides[index])} disabled={isRegenerating || previewingSegment === segment.startTime} className="hacker-button-default px-3 py-2 text-sm font-semibold rounded-md flex items-center justify-center gap-2 w-32">
+                                      {previewingSegment === segment.startTime ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div> : <><PlayIcon className="w-4 h-4" /> Preview</>}
+                                    </button>
                                   </div>
                               </li>
                           );

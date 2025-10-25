@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Modality, Type } from '@google/genai';
 import type { SpeakerProfile, TranscriptionSegment, Dialect, TargetLanguage } from '../types';
 import { fileToBase64, base64ToUint8Array, createAudioBufferFromPcm, audioBufferToPcm, uint8ArrayToBase64 } from '../utils/media';
@@ -154,13 +155,16 @@ export async function translateText(
             break;
     }
 
-    const prompt = `You are an expert linguist specializing in creating high-quality dubbing scripts for video. Your task is to translate the "text" of each segment in the provided JSON array from ${sourceLanguage} into natural-sounding, performable ${targetLanguageDescription}.
+    const prompt = `You are an expert linguist specializing in creating high-quality, time-synchronized dubbing scripts for video. Your task is to translate the "text" of each segment in the provided JSON array from ${sourceLanguage} into natural-sounding, performable ${targetLanguageDescription}.
 
-**CRITICAL Directives for Dubbing:**
+**CRITICAL Directives for High-Precision Dubbing:**
 
-1.  **Lip-Sync & Timing is Key**: This is NOT a simple text translation. The translated text must be spoken in roughly the same amount of time as the original.
-    *   **ADAPT, DON'T JUST TRANSLATE**: If a direct translation is too long or too short, you MUST rephrase it to fit the time constraints implied by the original text's length. Condense or elaborate as needed while preserving the core meaning.
-    *   The goal is a script that an actor can perform in sync with the on-screen character.
+Your primary objective is to create a script that is perfectly synchronized with the video's timing. Meaning is important, but **timing is paramount**.
+
+1.  **Strict Time-Matching (Lip-Sync)**: This is your most important task. The translated text MUST be performable within the exact duration calculated from \`endTime - startTime\`.
+    *   **Analyze Original Pacing**: Before translating, consider the length and cadence of the original text.
+    *   **Adapt, Don't Just Translate Literally**: You MUST rephrase, condense, or even slightly expand the translation to fit the time slot. A literal translation that is too long is a failure. A translation that is too short is also a failure. Find a natural-sounding equivalent that fits the timing.
+    *   **Example**: If the original is a short, quick phrase, the translation must also be short and quick. If the original is a longer, slower sentence, the translation must match that pace. The goal is a seamless dub that looks and sounds natural.
 
 2.  **Preserve Tone & Emotion**: Analyze the original text to understand the speaker's emotion (e.g., sarcastic, urgent, happy, sad). The translation MUST convey the same emotional tone.
 
@@ -200,7 +204,6 @@ ${JSON.stringify(segments, null, 2)}
     });
 
     const result = JSON.parse(response.text);
-    // Basic validation
     if (!Array.isArray(result) || result.length !== segments.length) {
         throw new Error("Translated data structure does not match original.");
     }
@@ -213,7 +216,6 @@ ${JSON.stringify(segments, null, 2)}
    }
 }
 
-// Generates a single audio clip for a given text and voice.
 export async function generateAudioClip(
     text: string, 
     voiceName: string,
@@ -224,7 +226,6 @@ export async function generateAudioClip(
     }
     const ai = getAiInstance();
 
-    // --- Attempt 1: Voice Cloning (if sample is provided) ---
     if (voiceSample) {
         const cloningRequest = {
             model: "gemini-2.5-flash-preview-tts",
@@ -250,7 +251,7 @@ export async function generateAudioClip(
             const response = await ai.models.generateContent(cloningRequest);
             const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
             if (audioData) {
-                return audioData; // Success on first attempt
+                return audioData;
             }
             console.warn(`Voice cloning attempt for text: "${text}" returned no audio data. Proceeding to fallback.`);
         } catch (cloningError) {
@@ -258,7 +259,6 @@ export async function generateAudioClip(
         }
     }
 
-    // --- Attempt 2: Fallback to Pre-built Voice Only ---
     const fallbackRequest = {
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text }] }],
@@ -282,7 +282,7 @@ export async function generateAudioClip(
         return audioData;
     } catch (fallbackError) {
         console.error(`TTS API fallback failed for text "${text}" with voice "${voiceName}". Error:`, fallbackError);
-        return ""; // Return empty on API error to not break the entire dubbing process
+        return "";
     }
 }
 
@@ -290,8 +290,9 @@ export async function generateAudioClip(
 export async function generateDubbedAudio(
     translatedSegments: TranscriptionSegment[],
     speakers: SpeakerProfile[],
-    voiceSelection: Record<string, string>, // Maps speaker ID to a voice name
-    voiceSampleFile?: File | null
+    voiceSelection: Record<string, string>,
+    voiceSampleFile?: File | null,
+    voiceOverrides?: Record<number, string>
 ): Promise<string> {
     try {
         if (translatedSegments.length === 0) {
@@ -304,22 +305,19 @@ export async function generateDubbedAudio(
             ? { data: await fileToBase64(voiceSampleFile), mimeType: voiceSampleFile.type }
             : undefined;
 
-        // 1. Generate all audio clips in parallel
-        const clipPromises = translatedSegments.map(segment => {
+        const clipPromises = translatedSegments.map((segment, index) => {
             const speaker = speakerMap.get(segment.speakerId);
             if (!speaker || (speaker.gender !== 'male' && speaker.gender !== 'female')) {
-                // This case should be rare due to pre-filtering, but as a safeguard:
                 console.warn(`Skipping segment for unknown or invalid-gender speaker: ${segment.speakerId}`);
                 return Promise.resolve("");
             }
             
-            const voiceName = voiceSelection[speaker.id];
+            const overrideVoice = voiceOverrides?.[index];
+            const defaultVoice = voiceSelection[speaker.id];
+            const voiceName = overrideVoice || defaultVoice;
 
-            // CRITICAL: A pre-built voice must be selected for every speaker.
-            // If no voice is selected, the TTS API call will fail. This check prevents
-            // attempting to generate audio with an invalid configuration.
             if (!voiceName) {
-                console.warn(`No voice selected for speaker ${speaker.id}, skipping segment.`);
+                console.warn(`No voice selected or assigned for speaker ${speaker.id} (segment ${index}), skipping segment.`);
                 return Promise.resolve("");
             }
 
@@ -328,7 +326,6 @@ export async function generateDubbedAudio(
 
         const base64Clips = await Promise.all(clipPromises);
 
-        // Filter out any failed clips and their corresponding segments
         const validClips = base64Clips.map((clip, index) => ({ clip, segment: translatedSegments[index] }))
             .filter(item => item.clip.length > 0);
 
@@ -336,7 +333,6 @@ export async function generateDubbedAudio(
             throw new Error("Failed to generate any audio clips for the given text.");
         }
 
-        // 2. Decode clips into AudioBuffers using a temporary AudioContext
         const tempAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
         const audioBufferPromises = validClips.map(({ clip }) => {
             const bytes = base64ToUint8Array(clip);
@@ -345,7 +341,6 @@ export async function generateDubbedAudio(
         const audioBuffers = await Promise.all(audioBufferPromises);
         await tempAudioContext.close();
 
-        // 3. Stitch them together in an OfflineAudioContext
         const totalDuration = translatedSegments.length > 0
             ? Math.max(...translatedSegments.map(segment => segment.endTime))
             : 0;
@@ -354,22 +349,20 @@ export async function generateDubbedAudio(
             throw new Error("Cannot determine audio duration from segments.");
         }
 
-        // Add a small buffer to the duration
         const offlineContext = new OfflineAudioContext(1, Math.ceil((totalDuration + 0.5) * 24000), 24000);
 
         validClips.forEach(({ segment }, index) => {
             const buffer = audioBuffers[index];
-            const source = offlineContext.createBufferSource();
-            source.buffer = buffer;
-            source.connect(offlineContext.destination);
-
-            // Here we can add logic to stretch/compress audio if needed, for now just start at the right time
-            source.start(segment.startTime);
+            if (buffer.duration > 0) {
+                const source = offlineContext.createBufferSource();
+                source.buffer = buffer;
+                source.connect(offlineContext.destination);
+                source.start(segment.startTime);
+            }
         });
 
         const finalBuffer = await offlineContext.startRendering();
 
-        // 4. Convert the final stitched AudioBuffer back to base64
         const pcmData = audioBufferToPcm(finalBuffer);
         return uint8ArrayToBase64(pcmData);
 

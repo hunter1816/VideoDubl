@@ -1,17 +1,16 @@
 
+
 import React, { useRef, useEffect } from 'react';
 import { base64ToUint8Array, createAudioBufferFromPcm } from '../utils/media';
 
 interface VideoPlayerProps {
-  videoSrc: string;
+  videoRef: React.RefObject<HTMLVideoElement>;
   audioData: string; // base64 encoded PCM data
   playbackRate: number;
   audioOffset: number; // in milliseconds
 }
 
-export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoSrc, audioData, playbackRate, audioOffset }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  
+export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoRef, audioData, playbackRate, audioOffset }) => {
   // Refs for Web Audio API and state
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioBufferRef = useRef<AudioBuffer | null>(null);
@@ -198,16 +197,5 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoSrc, audioData, p
     };
   }, [playbackRate, audioOffset]); // Rerun this entire effect when sync props change
 
-  return (
-    <div>
-      <video
-        ref={videoRef}
-        src={videoSrc}
-        controls
-        muted
-        playsInline
-        className="w-full h-auto rounded-lg shadow-2xl"
-      />
-    </div>
-  );
+  return null;
 };

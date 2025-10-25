@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { FileUploader } from './components/FileUploader';
 import { VoiceUploader } from './components/VoiceUploader';
@@ -39,6 +38,7 @@ const App: React.FC = () => {
   const [voiceSelection, setVoiceSelection] = useState<Record<string, string>>({});
   const [voiceSampleFile, setVoiceSampleFile] = useState<File | null>(null);
   const [showLanguageConfirmation, setShowLanguageConfirmation] = useState(false);
+  const [voiceOverrides, setVoiceOverrides] = useState<Record<number, string>>({});
 
   useEffect(() => {
     // A simple check to see if the API key exists.
@@ -50,27 +50,41 @@ const App: React.FC = () => {
   useEffect(() => {
     // When the official translated transcription is available, initialize the editable state
     if (analysisResult?.translatedTranscription && videoFile) {
-        const storageKey = `dubber-translation-${videoFile.name}`;
-        const savedTranslationJson = localStorage.getItem(storageKey);
+        const translationKey = `dubber-translation-${videoFile.name}`;
+        const savedTranslationJson = localStorage.getItem(translationKey);
         
         if (savedTranslationJson) {
             try {
                 const savedTranslation = JSON.parse(savedTranslationJson);
-                // Simple validation to ensure the loaded data matches the current video's structure
-                if (Array.isArray(savedTranslation) && savedTranslation.length === analysisResult.translatedTranscription.length) {
+                if (Array.isArray(savedTranslation)) { // Allow loading even if length mismatches, user may have edited
                     setEditedTranslation(savedTranslation);
-                    return; // Use the saved version
                 } else {
-                    console.warn("Saved translation in localStorage is mismatched, ignoring.");
+                    console.warn("Saved translation in localStorage is malformed, ignoring.");
+                    setEditedTranslation(analysisResult.translatedTranscription);
                 }
             } catch (e) {
                 console.error("Failed to parse saved translation from localStorage.", e);
-                localStorage.removeItem(storageKey); // Clear corrupted data
+                localStorage.removeItem(translationKey);
+                setEditedTranslation(analysisResult.translatedTranscription);
             }
+        } else {
+           setEditedTranslation(analysisResult.translatedTranscription);
         }
 
-      // If no valid saved version, use the newly generated one
-      setEditedTranslation(analysisResult.translatedTranscription);
+        // Load voice overrides
+        const overridesKey = `dubber-overrides-${videoFile.name}`;
+        const savedOverridesJson = localStorage.getItem(overridesKey);
+        if (savedOverridesJson) {
+            try {
+                const savedOverrides = JSON.parse(savedOverridesJson);
+                setVoiceOverrides(savedOverrides);
+            } catch (e) {
+                console.error("Failed to parse saved voice overrides.", e);
+                localStorage.removeItem(overridesKey);
+            }
+        } else {
+            setVoiceOverrides({});
+        }
     }
   }, [analysisResult?.translatedTranscription, videoFile]);
 
@@ -88,6 +102,7 @@ const App: React.FC = () => {
     setTargetLanguage('arabic');
     setDialect('standard');
     setVoiceSelection({});
+    setVoiceOverrides({});
     setVoiceSampleFile(null);
     if(videoUrl) URL.revokeObjectURL(videoUrl);
     setVideoUrl(null);
@@ -102,14 +117,14 @@ const App: React.FC = () => {
       setOriginalAudioUrl(url);
     } catch (err) {
       console.error("Failed to extract original audio:", err);
-      // Non-critical error, so we don't set the main error state
     }
   };
 
   const startTranslationAndDubbing = useCallback(async (
     isRegen = false, 
     initialAnalysis?: AppAnalysisResult,
-    voiceConfig?: Record<string, string>
+    voiceConfig?: Record<string, string>,
+    overrides?: Record<number, string>
   ) => {
     setError(null);
     const currentAnalysis = initialAnalysis || analysisResult;
@@ -132,7 +147,6 @@ const App: React.FC = () => {
             }
             segmentsToDub = editedTranslation;
         } else {
-            // For the initial run, we perform the translation first.
             setCurrentStep('translating');
             const translatedSegments = await translateText(
                 currentAnalysis.transcription,
@@ -140,14 +154,13 @@ const App: React.FC = () => {
                 targetLanguage,
                 targetLanguage === 'arabic' ? dialect : null
             );
-            // This will trigger the useEffect to setEditedTranslation
             const resultWithTranslation = { ...currentAnalysis, translatedTranscription: translatedSegments };
             setAnalysisResult(resultWithTranslation);
             segmentsToDub = translatedSegments;
         }
         
         setCurrentStep(isRegen ? 'regenerating' : 'dubbing');
-        const audioBase64 = await generateDubbedAudio(segmentsToDub, speakers, currentVoices, voiceSampleFile);
+        const audioBase64 = await generateDubbedAudio(segmentsToDub, speakers, currentVoices, voiceSampleFile, overrides);
 
         setDubbedAudioData(audioBase64);
         setCurrentStep('done');
@@ -176,14 +189,7 @@ const App: React.FC = () => {
           
           setAnalysisResult(analysis); 
           
-          // For simplicity in this flow, we will assume English and proceed.
-          // In a real app, the confirmation modal is a good idea.
-          startTranslationAndDubbing(false, analysis, initialVoiceSelection);
-          // if (analysis.language.toLowerCase().includes('english')) {
-          //     startTranslationAndDubbing(false, analysis, initialVoiceSelection);
-          // } else {
-          //     setShowLanguageConfirmation(true);
-          // }
+          startTranslationAndDubbing(false, analysis, initialVoiceSelection, {});
       } catch (err) {
           console.error(err);
           setError(err instanceof Error ? err.message : 'An unknown error occurred.');
@@ -210,23 +216,102 @@ const App: React.FC = () => {
     setVoiceSelection(prev => ({ ...prev, [speakerId]: voiceName }));
   };
 
-  const handleTranslationChange = (index: number, newText: string) => {
+  const handleTranslationChange = (index: number, updatedFields: Partial<TranscriptionSegment>) => {
     if (!editedTranslation) return;
-    const newTranslation = [...editedTranslation];
-    newTranslation[index] = { ...newTranslation[index], text: newText };
-    setEditedTranslation(newTranslation);
 
-    // Auto-save to localStorage
+    const newSegments = [...editedTranslation];
+    const updatedSegment = { ...newSegments[index], ...updatedFields };
+
+    // Basic validation
+    if (updatedSegment.startTime < 0) updatedSegment.startTime = 0;
+    if (updatedSegment.endTime < updatedSegment.startTime) {
+        updatedSegment.endTime = updatedSegment.startTime;
+    }
+    newSegments[index] = updatedSegment;
+    
+    setEditedTranslation(newSegments);
+
     if (videoFile) {
         const storageKey = `dubber-translation-${videoFile.name}`;
         try {
-            localStorage.setItem(storageKey, JSON.stringify(newTranslation));
+            localStorage.setItem(storageKey, JSON.stringify(newSegments));
         } catch (e) {
             console.error("Failed to save translation to localStorage.", e);
         }
     }
   };
   
+  const handleAddNewSegment = () => {
+    setEditedTranslation(prev => {
+        if (!prev) return null;
+
+        // Find the latest endTime in the whole array to ensure the new segment starts after everything else.
+        const latestTime = prev.reduce((max, seg) => Math.max(max, seg.endTime), 0);
+
+        const newSegment: TranscriptionSegment = {
+            speakerId: analysisResult?.speakers[0]?.id ?? 'Speaker 1',
+            text: 'أدخل النص المترجم هنا...', // Placeholder text in Arabic
+            startTime: latestTime + 0.1, // Add a small gap
+            endTime: latestTime + 2.1, // Default 2 second duration
+        };
+
+        const newSegments = [...prev, newSegment];
+        
+        if (videoFile) {
+            const storageKey = `dubber-translation-${videoFile.name}`;
+            localStorage.setItem(storageKey, JSON.stringify(newSegments));
+        }
+        
+        return newSegments;
+    });
+  };
+
+  const handleSegmentReorder = (index: number, direction: 'up' | 'down') => {
+    if (!editedTranslation) return;
+
+    const newSegments = [...editedTranslation];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+
+    if (targetIndex < 0 || targetIndex >= newSegments.length) {
+      return; // Invalid move
+    }
+
+    // Swap elements
+    [newSegments[index], newSegments[targetIndex]] = [newSegments[targetIndex], newSegments[index]];
+    
+    setEditedTranslation(newSegments);
+
+    if (videoFile) {
+        const storageKey = `dubber-translation-${videoFile.name}`;
+        try {
+            localStorage.setItem(storageKey, JSON.stringify(newSegments));
+        } catch (e) {
+            console.error("Failed to save reordered translation to localStorage.", e);
+        }
+    }
+  };
+
+  const handleVoiceOverrideChange = (index: number, voiceName: string | null) => {
+    setVoiceOverrides(prev => {
+        const newOverrides = { ...prev };
+        if (voiceName) {
+            newOverrides[index] = voiceName;
+        } else {
+            delete newOverrides[index];
+        }
+        
+        if (videoFile) {
+            const storageKey = `dubber-overrides-${videoFile.name}`;
+            try {
+                localStorage.setItem(storageKey, JSON.stringify(newOverrides));
+            } catch (e) {
+                console.error("Failed to save voice overrides to localStorage.", e);
+            }
+        }
+        return newOverrides;
+    });
+  };
+
   const handleDialectChange = (newDialect: Dialect) => {
     setDialect(newDialect);
   };
@@ -237,15 +322,17 @@ const App: React.FC = () => {
 
   const handleRegenerate = () => {
     if (videoFile && editedTranslation) {
-      startTranslationAndDubbing(true);
+      // The user's manual order from the UI is now the source of truth.
+      // We will no longer sort by startTime, giving them full control over sequence.
+      // The localStorage is already updated by the reorder and edit handlers,
+      // so we just need to trigger the dubbing process with the current state.
+      startTranslationAndDubbing(true, undefined, undefined, voiceOverrides);
     }
   };
 
   const handleConfirmAndProceed = () => {
       setShowLanguageConfirmation(false);
-      // This flow would also need to be updated if the confirmation modal is re-enabled
-      // to correctly pass the voice selection.
-      startTranslationAndDubbing(false);
+      startTranslationAndDubbing(false, undefined, undefined, {});
   };
 
   const handleCancelConfirmation = () => {
@@ -331,6 +418,10 @@ const App: React.FC = () => {
             analysisResult={analysisResult!}
             editedTranslation={editedTranslation}
             onTranslationChange={handleTranslationChange}
+            onAddNewSegment={handleAddNewSegment}
+            onSegmentReorder={handleSegmentReorder}
+            voiceOverrides={voiceOverrides}
+            onVoiceOverrideChange={handleVoiceOverrideChange}
             originalAudioUrl={originalAudioUrl}
             voiceSelection={voiceSelection}
             onVoiceChange={handleVoiceSelectionChange}
