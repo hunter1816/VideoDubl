@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { AnalysisResult, TranscriptionSegment, TargetLanguage, SpeakerProfile } from '../types';
 import { VideoPlayer } from './VideoPlayer';
-import { base64ToUint8Array, createWavBlobFromPcm, createAudioBufferFromPcm, mergeVideoAndPcmAudio } from '../utils/media';
+import { base64ToUint8Array, createWavBlobFromPcm, createAudioBufferFromPcm, mergeVideoAndPcmAudio, fileToBase64 } from '../utils/media';
 import { TTS_VOICES } from '../constants';
 import { generateAudioClip } from '../services/geminiService';
 
@@ -111,6 +111,12 @@ const ArrowLeftIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
     <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
 );
 
+const ZapIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+    </svg>
+);
+
 interface RenameConfirmationModalProps {
   oldId: string;
   newId: string;
@@ -172,6 +178,7 @@ interface ResultDisplayProps {
   onRegenerate: () => void;
   isRegenerating: boolean;
   isVoiceCloningActive: boolean;
+  voiceSampleFile: File | null;
   targetLanguage: TargetLanguage;
   onReset: () => void;
 }
@@ -279,6 +286,7 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
     onRegenerate,
     isRegenerating,
     isVoiceCloningActive,
+    voiceSampleFile,
     targetLanguage,
     onReset,
 }) => {
@@ -443,7 +451,11 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
         const sampleSegment = analysisResult.translatedTranscription?.find((seg) => seg.speakerId === speakerId);
         if (!sampleSegment || !voiceName) throw new Error("No sample text available.");
 
-        const audioBase64 = await generateAudioClip(sampleSegment.text, voiceName);
+        const voiceSampleData = (isVoiceCloningActive && voiceSampleFile)
+            ? { data: await fileToBase64(voiceSampleFile), mimeType: voiceSampleFile.type }
+            : undefined;
+
+        const audioBase64 = await generateAudioClip(sampleSegment.text, voiceName, voiceSampleData);
         if (!audioBase64) throw new Error("Could not generate preview.");
 
         const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -471,7 +483,11 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
         const voiceName = voiceOverride || voiceSelection[segment.speakerId];
         if (!voiceName && !isVoiceCloningActive) throw new Error("No voice assigned.");
 
-        const audioBase64 = await generateAudioClip(segment.text, voiceName);
+        const voiceSampleData = (isVoiceCloningActive && !voiceOverride && voiceSampleFile)
+            ? { data: await fileToBase64(voiceSampleFile), mimeType: voiceSampleFile.type }
+            : undefined;
+
+        const audioBase64 = await generateAudioClip(segment.text, voiceName, voiceSampleData);
         if (!audioBase64) throw new Error("Could not generate audio.");
         
         const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -689,7 +705,7 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                           const speaker = analysisResult.speakers.find(s => s.id === segment.speakerId);
                           const defaultVoiceName = voiceSelection[segment.speakerId];
                           const defaultVoice = speaker ? TTS_VOICES[speaker.gender]?.find(v => v.name === defaultVoiceName) : null;
-                          const defaultVoiceLabel = defaultVoice ? defaultVoice.label : "Default";
+                          const defaultVoiceLabel = isVoiceCloningActive ? "Cloned Voice" : (defaultVoice ? defaultVoice.label : "Default");
 
                           return (
                               <li 
@@ -778,23 +794,33 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                                   />
 
                                   <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                    <select
-                                        id={`voice-override-${index}`}
-                                        value={voiceOverrides[index] || 'default'}
-                                        onChange={(e) => onVoiceOverrideChange(index, e.target.value === 'default' ? null : e.target.value)}
-                                        disabled={isRegenerating}
-                                        className="hacker-select flex-grow text-sm p-2"
-                                        aria-label={`Override voice for segment ${index + 1}`}
-                                    >
-                                      <option value="default">Default ({defaultVoiceLabel})</option>
-                                      <optgroup label="Male Voices">
-                                        {TTS_VOICES.male.map(voice => <option key={voice.name} value={voice.name}>{voice.label}</option>)}
-                                      </optgroup>
-                                      <optgroup label="Female Voices">
-                                        {TTS_VOICES.female.map(voice => <option key={voice.name} value={voice.name}>{voice.label}</option>)}
-                                      </optgroup>
-                                    </select>
-                                    <button onClick={() => handleSegmentPreview(segment, voiceOverrides[index])} disabled={isRegenerating || previewingSegment === segment.startTime} className="hacker-button-default px-3 py-2 text-sm font-semibold rounded-md flex items-center justify-center gap-2 w-32">
+                                    <div className="flex-grow flex items-center gap-2">
+                                      <select
+                                          id={`voice-override-${index}`}
+                                          value={voiceOverrides[index] || 'default'}
+                                          onChange={(e) => onVoiceOverrideChange(index, e.target.value === 'default' ? null : e.target.value)}
+                                          disabled={isRegenerating}
+                                          className="hacker-select flex-grow text-sm p-2"
+                                          aria-label={`Override voice for segment ${index + 1}`}
+                                      >
+                                        <option value="default">Default ({defaultVoiceLabel})</option>
+                                        <optgroup label="Male Voices">
+                                          {TTS_VOICES.male.map(voice => <option key={voice.name} value={voice.name}>{voice.label}</option>)}
+                                        </optgroup>
+                                        <optgroup label="Female Voices">
+                                          {TTS_VOICES.female.map(voice => <option key={voice.name} value={voice.name}>{voice.label}</option>)}
+                                        </optgroup>
+                                      </select>
+                                      {isVoiceCloningActive && !voiceOverrides[index] && (
+                                          <div className="relative group flex-shrink-0">
+                                              <ZapIcon className="w-5 h-5 text-cyan-400 animate-pulse" />
+                                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 text-xs text-center text-white bg-black border border-[var(--border-color)] rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-10">
+                                                  Voice cloning sample will be used for this segment.
+                                              </div>
+                                          </div>
+                                      )}
+                                    </div>
+                                    <button onClick={() => handleSegmentPreview(segment, voiceOverrides[index])} disabled={isRegenerating || previewingSegment === segment.startTime} className="hacker-button-default px-3 py-2 text-sm font-semibold rounded-md flex items-center justify-center gap-2 w-32 flex-shrink-0">
                                       {previewingSegment === segment.startTime ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div> : <><PlayIcon className="w-4 h-4" /> Preview</>}
                                     </button>
                                   </div>

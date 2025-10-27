@@ -429,6 +429,7 @@ const App: React.FC = () => {
             onRegenerate={handleRegenerate}
             isRegenerating={isRegenerating}
             isVoiceCloningActive={!!voiceSampleFile}
+            voiceSampleFile={voiceSampleFile}
             targetLanguage={targetLanguage}
             onReset={resetProcessingState}
           />
