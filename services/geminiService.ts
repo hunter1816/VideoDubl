@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Modality, Type } from '@google/genai';
 import type { SpeakerProfile, TranscriptionSegment, Dialect, TargetLanguage } from '../types';
 import { fileToBase64, base64ToUint8Array, createAudioBufferFromPcm, audioBufferToPcm, uint8ArrayToBase64 } from '../utils/media';
@@ -7,7 +6,7 @@ let ai: GoogleGenAI;
 
 function getAiInstance(): GoogleGenAI {
     if (!ai) {
-        if (!process.env.API_KEY) {
+        if (typeof process === 'undefined' || !process.env || !process.env.API_KEY) {
             // This should not be reached if the UI check is in place, but serves as a safeguard.
             throw new Error("API_KEY environment variable not set. This application cannot function without it.");
         }
@@ -112,6 +111,9 @@ Your response MUST be a single, valid JSON object with "language", "speakers", a
     const speakerIdSet = new Set(validatedSpeakers.map(s => s.id));
     const validatedTranscription = result.transcription.filter((t: TranscriptionSegment) => speakerIdSet.has(t.speakerId));
 
+    if (validatedTranscription.length === 0) {
+        throw new Error("No speech could be transcribed from the video. Please check the audio track.");
+    }
 
     return {
       language: result.language,
@@ -120,8 +122,102 @@ Your response MUST be a single, valid JSON object with "language", "speakers", a
     };
   } catch (error) {
     console.error("Error in analyzeVideo:", error);
+    if (error instanceof Error && error.message.includes("No speech could be transcribed")) {
+        throw error;
+    }
     throw new Error("Failed to analyze video for speakers. The model may not have been able to process the audio.");
   }
+}
+
+export async function diarizeSpeakersAndDetectEmotion(videoFile: File): Promise<{ speakers: SpeakerProfile[], timeline: (Omit<TranscriptionSegment, 'text'> & { emotion: string })[] }> {
+    try {
+        const ai = getAiInstance();
+        const videoBase64 = await fileToBase64(videoFile);
+        
+        const prompt = `You are an expert audio analyst specializing in speaker diarization and emotion detection. Analyze the audio from this video.
+
+**CRITICAL INSTRUCTIONS:**
+1.  **DO NOT TRANSCRIBE THE AUDIO.** Your sole focus is on identifying speakers, their timing, and their emotional tone.
+2.  **Identify Speakers**: Detect each unique speaker, assign a label (e.g., "Speaker 1"), and determine their gender ('male', 'female', or 'unknown').
+3.  **Create Speaker Timeline**: Produce a precise, time-coded log of every continuous utterance. For each entry, specify the speaker, start time, and end time in seconds.
+4.  **Detect Emotion**: For each utterance in the timeline, analyze the speaker's tone, pitch, and cadence to determine the primary emotion. Use one of the following labels: 'neutral', 'happy', 'sad', 'angry', 'surprised'.
+
+**Required JSON Output Structure:**
+Your response MUST be a single, valid JSON object with "speakers" and "timeline" keys.
+- "speakers": An array of objects, each with "id" (string) and "gender" (string: 'male', 'female', 'unknown').
+- "timeline": An array of objects, each with "speakerId" (string), "startTime" (number), "endTime" (number), and "emotion" (string).`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-pro',
+            contents: {
+                parts: [
+                    { inlineData: { mimeType: videoFile.type, data: videoBase64 } },
+                    { text: prompt },
+                ],
+            },
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        speakers: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    id: { type: Type.STRING },
+                                    gender: { type: Type.STRING },
+                                },
+                                required: ['id', 'gender'],
+                            }
+                        },
+                        timeline: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    speakerId: { type: Type.STRING },
+                                    startTime: { type: Type.NUMBER },
+                                    endTime: { type: Type.NUMBER },
+                                    emotion: { type: Type.STRING },
+                                },
+                                required: ['speakerId', 'startTime', 'endTime', 'emotion'],
+                            }
+                        },
+                    },
+                    required: ['speakers', 'timeline'],
+                }
+            }
+        });
+        
+        const result = JSON.parse(response.text);
+
+        if (!result.speakers || !result.timeline) {
+            throw new Error("Invalid diarization data received. Missing 'speakers' or 'timeline'.");
+        }
+
+        const validatedSpeakers: SpeakerProfile[] = result.speakers.map((s: any) => ({
+            id: s.id,
+            gender: s.gender.toLowerCase() === 'male' ? 'male' : (s.gender.toLowerCase() === 'female' ? 'female' : 'unknown'),
+        })).filter((s: SpeakerProfile) => s.gender !== 'unknown');
+
+        if (validatedSpeakers.length === 0) {
+            throw new Error("Could not identify any speakers in the video for diarization.");
+        }
+        
+        if (!result.timeline || result.timeline.length === 0) {
+            throw new Error("Could not detect any speaker segments in the video timeline. Please check the audio track.");
+        }
+
+        return { speakers: validatedSpeakers, timeline: result.timeline };
+
+    } catch (error) {
+        console.error("Error in diarizeSpeakersAndDetectEmotion:", error);
+        if (error instanceof Error && error.message.includes("Could not detect any speaker segments")) {
+            throw error;
+        }
+        throw new Error("Failed to analyze video for speaker diarization and emotion detection.");
+    }
 }
 
 export async function translateText(
@@ -219,6 +315,7 @@ ${JSON.stringify(segments, null, 2)}
 export async function generateAudioClip(
     text: string, 
     voiceName: string,
+    emotion: string | undefined,
     voiceSample?: { data: string; mimeType: string }
 ): Promise<string> {
     if (!text || !text.trim()) {
@@ -226,10 +323,16 @@ export async function generateAudioClip(
     }
     const ai = getAiInstance();
 
+    let textToSpeak = text;
+    if (emotion && emotion !== 'neutral') {
+        const prefix = `Say with a ${emotion} tone: `;
+        textToSpeak = prefix + text;
+    }
+
     if (voiceSample) {
         const cloningRequest = {
             model: "gemini-2.5-flash-preview-tts",
-            contents: [{ parts: [{ text }] }],
+            contents: [{ parts: [{ text: textToSpeak }] }],
             config: {
                 responseModalities: [Modality.AUDIO] as Modality[],
                 speechConfig: {
@@ -261,7 +364,7 @@ export async function generateAudioClip(
 
     const fallbackRequest = {
         model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text }] }],
+        contents: [{ parts: [{ text: textToSpeak }] }],
         config: {
             responseModalities: [Modality.AUDIO] as Modality[],
             speechConfig: {
@@ -295,8 +398,10 @@ export async function generateDubbedAudio(
     voiceOverrides?: Record<number, string>
 ): Promise<string> {
     try {
-        if (translatedSegments.length === 0) {
-            throw new Error("No text segments provided for dubbing.");
+        // FIX: Gracefully handle cases with no valid input segments to prevent crashes.
+        if (!translatedSegments || translatedSegments.length === 0) {
+            console.warn("No text segments provided for dubbing. Returning empty audio track.");
+            return "";
         }
         
         const speakerMap = new Map(speakers.map(s => [s.id, s]));
@@ -321,7 +426,7 @@ export async function generateDubbedAudio(
                 return Promise.resolve("");
             }
 
-            return generateAudioClip(segment.text, voiceName, voiceSampleData);
+            return generateAudioClip(segment.text, voiceName, segment.emotion, voiceSampleData);
         });
 
         const base64Clips = await Promise.all(clipPromises);
@@ -329,8 +434,10 @@ export async function generateDubbedAudio(
         const validClips = base64Clips.map((clip, index) => ({ clip, segment: translatedSegments[index] }))
             .filter(item => item.clip.length > 0);
 
+        // FIX: Gracefully handle cases where all audio clips failed to generate.
         if (validClips.length === 0) {
-            throw new Error("Failed to generate any audio clips for the given text.");
+            console.warn("Failed to generate any audio clips for the given text. Returning empty audio track.");
+            return "";
         }
 
         const tempAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -341,13 +448,15 @@ export async function generateDubbedAudio(
         const audioBuffers = await Promise.all(audioBufferPromises);
         await tempAudioContext.close();
 
-        const totalDuration = translatedSegments.length > 0
-            ? Math.max(...translatedSegments.map(segment => segment.endTime))
-            : 0;
-
-        if (totalDuration === 0) {
-            throw new Error("Cannot determine audio duration from segments.");
+        // Calculate duration based on the clips that were actually generated successfully.
+        const totalDuration = Math.max(...validClips.map(({ segment }) => segment.endTime));
+        
+        // FIX: Gracefully handle cases where duration is zero or negative (e.g., from bad subtitle timings).
+        if (totalDuration <= 0) {
+            console.warn("Cannot determine a valid audio duration from segments (all end times are zero or negative). Returning empty audio track.");
+            return "";
         }
+
 
         const offlineContext = new OfflineAudioContext(1, Math.ceil((totalDuration + 0.5) * 24000), 24000);
 

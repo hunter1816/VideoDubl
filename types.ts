@@ -7,7 +7,7 @@ export type TargetLanguage = 'arabic' | 'spanish' | 'french';
 export interface SpeakerProfile {
   id: string; // e.g., "Speaker 1"
   gender: 'male' | 'female' | 'unknown';
-  confidence: number; // Confidence score from 0.0 to 1.0
+  confidence?: number; // Confidence score from 0.0 to 1.0
 }
 
 export interface TranscriptionSegment {
@@ -15,6 +15,7 @@ export interface TranscriptionSegment {
     text: string;
     startTime: number; // in seconds
     endTime: number; // in seconds
+    emotion?: string; // e.g., 'happy', 'sad', 'angry'
 }
 
 export interface AnalysisResult {

@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { FileUploader } from './components/FileUploader';
 import { VoiceUploader } from './components/VoiceUploader';
+import { SubtitleUploader } from './components/SubtitleUploader';
 import { TerminalLog } from './components/TerminalLog';
 import { Header } from './components/Header';
 import { ErrorDisplay } from './components/ErrorDisplay';
@@ -8,13 +9,15 @@ import { ResultDisplay } from './components/ResultDisplay';
 import { DialectSelector } from './components/DialectSelector';
 import { TargetLanguageSelector } from './components/TargetLanguageSelector';
 import { LanguageConfirmationModal } from './components/LanguageConfirmationModal';
-import { analyzeVideo, translateText, generateDubbedAudio } from './services/geminiService';
+import { analyzeVideo, translateText, generateDubbedAudio, diarizeSpeakersAndDetectEmotion } from './services/geminiService';
 import { extractAudioFromVideoAsWavBlob } from './utils/media';
+import { parseSrt } from './utils/subtitleParser';
 import type { ProcessStep, AnalysisResult, SpeakerProfile, TranscriptionSegment, Dialect, TargetLanguage } from './types';
+import type { ParsedSubtitleSegment } from './utils/subtitleParser';
 import { STEPS, TTS_VOICES } from './constants';
 
 // Extend AnalysisResult type locally for component state
-type AppAnalysisResult = AnalysisResult & { translatedTranscription?: TranscriptionSegment[] };
+type AppAnalysisResult = AnalysisResult & { translatedTranscription?: TranscriptionSegment[], usedSubtitles?: boolean };
 
 const AlertTriangleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -26,6 +29,8 @@ const AlertTriangleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 const App: React.FC = () => {
   const [isApiKeySet, setIsApiKeySet] = useState(false);
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [subtitleFile, setSubtitleFile] = useState<File | null>(null);
+  const [parsedSubtitles, setParsedSubtitles] = useState<ParsedSubtitleSegment[] | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [dubbedAudioData, setDubbedAudioData] = useState<string | null>(null);
   const [originalAudioUrl, setOriginalAudioUrl] = useState<string | null>(null);
@@ -41,8 +46,8 @@ const App: React.FC = () => {
   const [voiceOverrides, setVoiceOverrides] = useState<Record<number, string>>({});
 
   useEffect(() => {
-    // A simple check to see if the API key exists.
-    if (process.env.API_KEY) {
+    // A simple check to see if the API key exists in the environment.
+    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
       setIsApiKeySet(true);
     }
   }, []);
@@ -92,8 +97,10 @@ const App: React.FC = () => {
   const isRegenerating = currentStep === 'regenerating';
   const showResultsPage = (currentStep === 'done' || (currentStep === 'error' && analysisResult)) && videoUrl && analysisResult;
 
-  const resetProcessingState = () => {
+  const resetApplicationState = () => {
     setVideoFile(null);
+    setSubtitleFile(null);
+    setParsedSubtitles(null);
     setDubbedAudioData(null);
     setCurrentStep('idle');
     setError(null);
@@ -147,16 +154,23 @@ const App: React.FC = () => {
             }
             segmentsToDub = editedTranslation;
         } else {
-            setCurrentStep('translating');
-            const translatedSegments = await translateText(
-                currentAnalysis.transcription,
-                currentAnalysis.language,
-                targetLanguage,
-                targetLanguage === 'arabic' ? dialect : null
-            );
-            const resultWithTranslation = { ...currentAnalysis, translatedTranscription: translatedSegments };
-            setAnalysisResult(resultWithTranslation);
-            segmentsToDub = translatedSegments;
+            // If using subtitles, translation is already done (it's the subtitle text)
+            if (currentAnalysis.usedSubtitles) {
+                segmentsToDub = currentAnalysis.transcription;
+                const resultWithTranslation = { ...currentAnalysis, translatedTranscription: segmentsToDub };
+                setAnalysisResult(resultWithTranslation);
+            } else {
+                setCurrentStep('translating');
+                const translatedSegments = await translateText(
+                    currentAnalysis.transcription,
+                    currentAnalysis.language,
+                    targetLanguage,
+                    targetLanguage === 'arabic' ? dialect : null
+                );
+                const resultWithTranslation = { ...currentAnalysis, translatedTranscription: translatedSegments };
+                setAnalysisResult(resultWithTranslation);
+                segmentsToDub = translatedSegments;
+            }
         }
         
         setCurrentStep(isRegen ? 'regenerating' : 'dubbing');
@@ -171,7 +185,82 @@ const App: React.FC = () => {
     }
   }, [analysisResult, dialect, voiceSelection, voiceSampleFile, targetLanguage, editedTranslation]);
 
-  const handleVideoAnalysis = useCallback(async (file: File) => {
+  const handleSubtitleWorkflow = useCallback(async (video: File, subtitles: ParsedSubtitleSegment[]) => {
+      setError(null);
+      setCurrentStep('analyzing');
+      try {
+        const { speakers: detectedSpeakers, timeline } = await diarizeSpeakersAndDetectEmotion(video);
+
+        let finalSpeakers = detectedSpeakers;
+        let speakerMap: Record<string, string> = {};
+
+        // Simplify speakers if more than 2 are detected
+        if (detectedSpeakers.length > 2) {
+            const firstMale = detectedSpeakers.find(s => s.gender === 'male');
+            const firstFemale = detectedSpeakers.find(s => s.gender === 'female');
+
+            const newFinalSpeakers: SpeakerProfile[] = [];
+            if(firstMale) newFinalSpeakers.push(firstMale);
+            if(firstFemale) newFinalSpeakers.push(firstFemale);
+            finalSpeakers = newFinalSpeakers;
+
+            detectedSpeakers.forEach(s => {
+                if (s.gender === 'male' && firstMale) speakerMap[s.id] = firstMale.id;
+                else if (s.gender === 'female' && firstFemale) speakerMap[s.id] = firstFemale.id;
+                else if (firstMale) speakerMap[s.id] = firstMale.id; // Fallback for 'unknown'
+                else if (firstFemale) speakerMap[s.id] = firstFemale.id;
+            });
+        }
+        
+        const transcriptionWithSpeakers: TranscriptionSegment[] = subtitles.map(sub => {
+            const overlappingSpeakers = timeline.filter(speakerSegment =>
+                Math.max(sub.startTime, speakerSegment.startTime) < Math.min(sub.endTime, speakerSegment.endTime)
+            );
+
+            if (overlappingSpeakers.length === 0) {
+                return { ...sub, speakerId: finalSpeakers[0]?.id || 'Speaker 1', emotion: 'neutral' };
+            }
+
+            const speakerOverlapDurations = overlappingSpeakers.map(speakerSegment => {
+                const overlapStart = Math.max(sub.startTime, speakerSegment.startTime);
+                const overlapEnd = Math.min(sub.endTime, speakerSegment.endTime);
+                return { ...speakerSegment, overlap: overlapEnd - overlapStart };
+            });
+
+            const dominantSpeaker = speakerOverlapDurations.reduce((max, current) => current.overlap > max.overlap ? current : max);
+            
+            let finalSpeakerId = dominantSpeaker.speakerId;
+            if(Object.keys(speakerMap).length > 0 && speakerMap[finalSpeakerId]) {
+                finalSpeakerId = speakerMap[finalSpeakerId];
+            }
+
+            return { ...sub, speakerId: finalSpeakerId, emotion: dominantSpeaker.emotion };
+        });
+
+        const analysis: AppAnalysisResult = {
+            speakers: finalSpeakers,
+            transcription: transcriptionWithSpeakers,
+            language: "From Subtitles",
+            usedSubtitles: true
+        };
+
+        const initialVoiceSelection: Record<string, string> = {};
+        analysis.speakers.forEach(speaker => {
+            if (speaker.gender === 'male') initialVoiceSelection[speaker.id] = TTS_VOICES.male[0].name;
+            else if (speaker.gender === 'female') initialVoiceSelection[speaker.id] = TTS_VOICES.female[0].name;
+        });
+        setVoiceSelection(initialVoiceSelection);
+        setAnalysisResult(analysis);
+        startTranslationAndDubbing(false, analysis, initialVoiceSelection, {});
+
+      } catch(err) {
+        console.error(err);
+        setError(err instanceof Error ? err.message : 'An unknown error occurred during subtitle workflow.');
+        setCurrentStep('error');
+      }
+  }, [startTranslationAndDubbing]);
+
+  const handleTranscriptionWorkflow = useCallback(async (file: File) => {
       setError(null);
       setCurrentStep('analyzing');
       try {
@@ -179,11 +268,8 @@ const App: React.FC = () => {
 
           const initialVoiceSelection: Record<string, string> = {};
           analysis.speakers.forEach(speaker => {
-              if (speaker.gender === 'male') {
-                  initialVoiceSelection[speaker.id] = TTS_VOICES.male[0].name;
-              } else if (speaker.gender === 'female') {
-                  initialVoiceSelection[speaker.id] = TTS_VOICES.female[0].name;
-              }
+              if (speaker.gender === 'male') initialVoiceSelection[speaker.id] = TTS_VOICES.male[0].name;
+              else if (speaker.gender === 'female') initialVoiceSelection[speaker.id] = TTS_VOICES.female[0].name;
           });
           setVoiceSelection(initialVoiceSelection);
           
@@ -197,14 +283,49 @@ const App: React.FC = () => {
       }
   }, [startTranslationAndDubbing]);
 
-  const handleFileChange = (file: File | null) => {
-    resetProcessingState();
+  const handleVideoFileChange = (file: File | null) => {
+    // Soft reset: clear previous results but keep user's input settings for the new job.
+    setDubbedAudioData(null);
+    setCurrentStep('idle');
+    setError(null);
+    setAnalysisResult(null);
+    setEditedTranslation(null);
+    setVoiceSelection({});
+    setVoiceOverrides({});
+    if(videoUrl) URL.revokeObjectURL(videoUrl);
+    setVideoUrl(null);
+    if(originalAudioUrl) URL.revokeObjectURL(originalAudioUrl);
+    setOriginalAudioUrl(null);
+    // Note: subtitleFile, parsedSubtitles, voiceSampleFile, targetLanguage, and dialect are preserved.
+
     if (file) {
       setVideoFile(file);
       const url = URL.createObjectURL(file);
       setVideoUrl(url);
-      handleVideoAnalysis(file);
+
+      if (parsedSubtitles) {
+          handleSubtitleWorkflow(file, parsedSubtitles);
+      } else {
+          handleTranscriptionWorkflow(file);
+      }
       handleExtractOriginalAudio(file);
+    }
+  };
+
+  const handleSubtitleFileChange = async (file: File | null) => {
+    setSubtitleFile(file);
+    if(file) {
+        try {
+            const content = await file.text();
+            const parsed = parseSrt(content);
+            setParsedSubtitles(parsed);
+        } catch (e) {
+            console.error("Failed to parse SRT file", e);
+            setError("Could not read or parse the provided SRT file. Please check its format.");
+            setParsedSubtitles(null);
+        }
+    } else {
+        setParsedSubtitles(null);
     }
   };
   
@@ -337,7 +458,7 @@ const App: React.FC = () => {
 
   const handleCancelConfirmation = () => {
       setShowLanguageConfirmation(false);
-      resetProcessingState();
+      resetApplicationState();
   };
 
   const handleSpeakerRename = (oldId: string, newId: string) => {
@@ -431,7 +552,7 @@ const App: React.FC = () => {
             isVoiceCloningActive={!!voiceSampleFile}
             voiceSampleFile={voiceSampleFile}
             targetLanguage={targetLanguage}
-            onReset={resetProcessingState}
+            onReset={resetApplicationState}
           />
       )}
     </>
@@ -472,9 +593,16 @@ const App: React.FC = () => {
                 {!videoFile && (
                   <>
                     <div className="pt-6 border-t border-[var(--border-color)]">
+                        <SubtitleUploader
+                            selectedFile={subtitleFile}
+                            onFileChange={handleSubtitleFileChange}
+                            disabled={isInitialProcessing || !!videoFile}
+                        />
+                    </div>
+                    <div className="pt-6 border-t border-[var(--border-color)]">
                       <h3 className="text-lg font-semibold mb-2 text-green-300 tracking-wider">[ UPLOAD VIDEO ]</h3>
-                      <p className="text-sm text-green-400/70 mb-3">// AI will auto-detect speakers and timing.</p>
-                      <FileUploader onFileSelect={handleFileChange} disabled={isInitialProcessing} />
+                      <p className="text-sm text-green-400/70 mb-3">// Upload a subtitle file first (optional), then upload video to start.</p>
+                      <FileUploader onFileSelect={handleVideoFileChange} disabled={isInitialProcessing} />
                     </div>
                     <VoiceUploader
                       selectedFile={voiceSampleFile}
