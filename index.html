@@ -163,6 +163,27 @@
     border: none;
     box-shadow: 0 0 5px var(--primary-color);
   }
+  
+  /* Custom Scrollbar for Hacker Theme */
+  .hacker-scrollbar::-webkit-scrollbar {
+    width: 8px;
+  }
+  .hacker-scrollbar::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.5);
+    border-left: 1px solid var(--border-color);
+  }
+  .hacker-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--primary-color);
+    border-radius: 0;
+  }
+  .hacker-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #00ff6a; /* A slightly brighter green */
+  }
+  /* For Firefox */
+  .hacker-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary-color) rgba(0, 0, 0, 0.5);
+  }
 </style>
 </head>
   <body>

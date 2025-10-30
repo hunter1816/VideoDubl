@@ -374,6 +374,7 @@ const App: React.FC = () => {
             text: 'أدخل النص المترجم هنا...', // Placeholder text in Arabic
             startTime: latestTime + 0.1, // Add a small gap
             endTime: latestTime + 2.1, // Default 2 second duration
+            emotion: 'neutral',
         };
 
         const newSegments = [...prev, newSegment];
@@ -512,6 +513,25 @@ const App: React.FC = () => {
     });
   };
 
+  const handleSpeakerGenderChange = (speakerId: string, newGender: 'male' | 'female') => {
+    setAnalysisResult(prev => {
+        if (!prev) return null;
+        const updatedSpeakers = prev.speakers.map(s => 
+            s.id === speakerId ? { ...s, gender: newGender } : s
+        );
+        return { ...prev, speakers: updatedSpeakers };
+    });
+
+    const newDefaultVoice = newGender === 'male' 
+        ? TTS_VOICES.male[0].name 
+        : TTS_VOICES.female[0].name;
+
+    setVoiceSelection(prev => ({
+        ...prev,
+        [speakerId]: newDefaultVoice
+    }));
+  };
+
   if (!isApiKeySet) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-4">
@@ -547,6 +567,7 @@ const App: React.FC = () => {
             voiceSelection={voiceSelection}
             onVoiceChange={handleVoiceSelectionChange}
             onSpeakerRename={handleSpeakerRename}
+            onSpeakerGenderChange={handleSpeakerGenderChange}
             onRegenerate={handleRegenerate}
             isRegenerating={isRegenerating}
             isVoiceCloningActive={!!voiceSampleFile}

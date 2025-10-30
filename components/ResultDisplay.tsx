@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { AnalysisResult, TranscriptionSegment, TargetLanguage, SpeakerProfile } from '../types';
 import { VideoPlayer } from './VideoPlayer';
 import { base64ToUint8Array, createWavBlobFromPcm, createAudioBufferFromPcm, mergeVideoAndPcmAudio, fileToBase64 } from '../utils/media';
-import { TTS_VOICES } from '../constants';
+import { TTS_VOICES, EMOTION_OPTIONS } from '../constants';
 import { generateAudioClip } from '../services/geminiService';
 
 const AlertTriangleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -117,6 +117,15 @@ const ZapIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
     </svg>
 );
 
+const SmileIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+        <line x1="9" y1="9" x2="9.01" y2="9" />
+        <line x1="15" y1="9" x2="15.01" y2="9" />
+    </svg>
+);
+
 interface RenameConfirmationModalProps {
   oldId: string;
   newId: string;
@@ -175,6 +184,7 @@ interface ResultDisplayProps {
   voiceSelection: Record<string, string>;
   onVoiceChange: (speakerId: string, voiceName: string) => void;
   onSpeakerRename: (oldId: string, newId: string) => void;
+  onSpeakerGenderChange: (speakerId: string, newGender: 'male' | 'female') => void;
   onRegenerate: () => void;
   isRegenerating: boolean;
   isVoiceCloningActive: boolean;
@@ -283,6 +293,7 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
     voiceSelection,
     onVoiceChange,
     onSpeakerRename,
+    onSpeakerGenderChange,
     onRegenerate,
     isRegenerating,
     isVoiceCloningActive,
@@ -320,6 +331,18 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
     }
     prevTranslationLength.current = currentLength;
   }, [editedTranslation]);
+
+  useEffect(() => {
+    const videoElement = videoRef.current;
+    // When the component unmounts, clean up the video element to prevent errors.
+    return () => {
+      if (videoElement) {
+        videoElement.pause();
+        videoElement.removeAttribute('src'); // Detach the source.
+        videoElement.load(); // Flush the media pipeline.
+      }
+    };
+  }, []); // Empty dependency array ensures this runs only once on mount and cleanup on unmount.
 
   const targetLanguageDisplay = targetLanguage.charAt(0).toUpperCase() + targetLanguage.slice(1);
 
@@ -688,7 +711,7 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
               </div>
             </div>
             
-            <div ref={editorScrollRef} className="flex-grow overflow-y-auto p-4">
+            <div ref={editorScrollRef} className="flex-grow overflow-y-auto p-4 hacker-scrollbar">
               {editedTranslation ? (
                   editedTranslation.length > 0 ? (
                       <ul className="space-y-4">
@@ -703,119 +726,91 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                                   <li 
                                       key={`${segment.speakerId}-${segment.startTime}-${index}`} 
                                       onClick={() => handleSegmentClick(segment.startTime)}
-                                      className={`p-3 border rounded-md bg-black/20 space-y-3 cursor-pointer transition-all duration-200 hover:border-cyan-400/50 hover:scale-[1.01] ${index === activeSegmentIndex ? 'border-cyan-400 shadow-[0_0_15px_var(--secondary-color)] scale-[1.01]' : 'border-[var(--border-color)]'}`}
+                                      className={`border rounded-md bg-black/30 cursor-pointer transition-all duration-200 hover:border-cyan-400/50 ${index === activeSegmentIndex ? 'border-cyan-400 shadow-[0_0_15px_var(--secondary-color)] scale-[1.01]' : 'border-[var(--border-color)]'}`}
                                   >
-                                      <div className="flex justify-between items-start">
-                                          <div className="flex items-center gap-2 flex-grow">
-                                              <label htmlFor={`speaker-select-${index}`} className="text-sm font-medium text-cyan-300 flex-shrink-0">Speaker:</label>
-                                              <select
-                                                  id={`speaker-select-${index}`}
-                                                  value={segment.speakerId}
-                                                  onChange={(e) => onTranslationChange(index, { speakerId: e.target.value })}
-                                                  onClick={(e) => e.stopPropagation()} // Prevent li click when changing speaker
-                                                  disabled={isRegenerating}
-                                                  className="hacker-select flex-grow text-sm p-1"
-                                                  aria-label={`Select speaker for segment ${index + 1}`}
-                                              >
-                                                  {analysisResult.speakers.map(sp => (
-                                                      <option key={sp.id} value={sp.id}>
-                                                          {sp.id}
-                                                      </option>
-                                                  ))}
-                                              </select>
-                                          </div>
-                                          <div className="flex items-center gap-1 ml-2">
-                                              <button
-                                                  onClick={(e) => { e.stopPropagation(); onSegmentReorder(index, 'up'); }}
-                                                  disabled={isRegenerating || index === 0}
-                                                  className="hacker-button-default p-1.5 disabled:opacity-30"
-                                                  title="Move segment up"
-                                              >
-                                                  <ArrowUpIcon className="w-4 h-4" />
-                                              </button>
-                                              <button
-                                                  onClick={(e) => { e.stopPropagation(); onSegmentReorder(index, 'down'); }}
-                                                  disabled={isRegenerating || !editedTranslation || index === editedTranslation.length - 1}
-                                                  className="hacker-button-default p-1.5 disabled:opacity-30"
-                                                  title="Move segment down"
-                                              >
-                                                  <ArrowDownIcon className="w-4 h-4" />
-                                              </button>
-                                          </div>
-                                      </div>
+                                    <div className="flex justify-between items-center p-2 bg-black/30 border-b border-[var(--border-color)]">
+                                        <span className="font-mono text-cyan-400 text-sm">
+                                            &gt; SEGMENT #{String(index + 1).padStart(3, '0')}
+                                        </span>
+                                        <div className="flex items-center gap-1">
+                                            <button onClick={(e) => { e.stopPropagation(); onSegmentReorder(index, 'up'); }} disabled={isRegenerating || index === 0} className="hacker-button-default p-1.5 disabled:opacity-30" title="Move segment up">
+                                                <ArrowUpIcon className="w-4 h-4" />
+                                            </button>
+                                            <button onClick={(e) => { e.stopPropagation(); onSegmentReorder(index, 'down'); }} disabled={isRegenerating || !editedTranslation || index === editedTranslation.length - 1} className="hacker-button-default p-1.5 disabled:opacity-30" title="Move segment down">
+                                                <ArrowDownIcon className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="p-3 space-y-4">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div>
+                                                <label htmlFor={`speaker-select-${index}`} className="text-sm font-medium text-cyan-300 block mb-1">المتحدث // SPEAKER</label>
+                                                <select
+                                                    id={`speaker-select-${index}`} value={segment.speakerId}
+                                                    onChange={(e) => onTranslationChange(index, { speakerId: e.target.value })}
+                                                    onClick={(e) => e.stopPropagation()} disabled={isRegenerating}
+                                                    className="hacker-select w-full text-sm p-1.5" aria-label={`Select speaker for segment ${index + 1}`}>
+                                                    {analysisResult.speakers.map(sp => ( <option key={sp.id} value={sp.id}>{sp.id}</option> ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label htmlFor={`emotion-select-${index}`} className="text-sm font-medium text-cyan-300 block mb-1">الحالة المزاجية // MOOD</label>
+                                                <select
+                                                    id={`emotion-select-${index}`} value={segment.emotion || 'neutral'}
+                                                    onChange={(e) => onTranslationChange(index, { emotion: e.target.value })}
+                                                    onClick={(e) => e.stopPropagation()} disabled={isRegenerating}
+                                                    className="hacker-select w-full text-sm p-1.5" aria-label={`Select mood for segment ${index + 1}`}>
+                                                    {EMOTION_OPTIONS.map(opt => ( <option key={opt.value} value={opt.value}>{opt.labelAr}</option> ))}
+                                                </select>
+                                            </div>
+                                        </div>
 
-                                      <div className="flex items-center gap-4 text-sm font-mono">
-                                        <div className="flex items-center gap-2">
-                                          <label htmlFor={`start-time-${index}`} className="text-green-400/80">Start:</label>
-                                          <div className="flex items-center gap-1">
-                                            <input 
-                                                type="number" id={`start-time-${index}`} value={segment.startTime.toFixed(3)}
-                                                onChange={(e) => onTranslationChange(index, { startTime: parseFloat(e.target.value) || 0 })}
-                                                onBlur={(e) => { e.target.value = (parseFloat(e.target.value) || 0).toFixed(3); }}
-                                                onClick={(e) => e.stopPropagation()} step="0.01" min="0"
-                                                className="hacker-input w-24 p-1 text-center" disabled={isRegenerating}
-                                            />
-                                            <button onClick={(e) => { e.stopPropagation(); handleSetTime(index, 'start'); }} className="hacker-button-default p-1.5" title="Set start time from video"><LocateFixedIcon className="w-4 h-4" /></button>
-                                          </div>
+                                        <div>
+                                            <label className="text-sm font-medium text-green-400/80 block mb-1">TIMECODE (s)</label>
+                                            <div className="flex items-center gap-4 text-sm font-mono">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-green-400/80">T_START:</span>
+                                                    <div className="flex items-center">
+                                                        <input type="number" id={`start-time-${index}`} value={segment.startTime.toFixed(3)} onChange={(e) => onTranslationChange(index, { startTime: parseFloat(e.target.value) || 0 })} onBlur={(e) => { e.target.value = (parseFloat(e.target.value) || 0).toFixed(3); }} onClick={(e) => e.stopPropagation()} step="0.01" min="0" className="hacker-input w-24 p-1 text-center" disabled={isRegenerating} />
+                                                        <button onClick={(e) => { e.stopPropagation(); handleSetTime(index, 'start'); }} className="hacker-button-default p-1.5 rounded-l-none" title="Set start time from video"><LocateFixedIcon className="w-4 h-4" /></button>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-green-400/80">T_END:</span>
+                                                    <div className="flex items-center">
+                                                        <input type="number" id={`end-time-${index}`} value={segment.endTime.toFixed(3)} onChange={(e) => onTranslationChange(index, { endTime: parseFloat(e.target.value) || 0 })} onBlur={(e) => { e.target.value = (parseFloat(e.target.value) || 0).toFixed(3); }} onClick={(e) => e.stopPropagation()} step="0.01" min={segment.startTime} className="hacker-input w-24 p-1 text-center" disabled={isRegenerating} />
+                                                        <button onClick={(e) => { e.stopPropagation(); handleSetTime(index, 'end'); }} className="hacker-button-default p-1.5 rounded-l-none" title="Set end time from video"><LocateFixedIcon className="w-4 h-4" /></button>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="flex items-center gap-2">
-                                          <label htmlFor={`end-time-${index}`} className="text-green-400/80">End:</label>
-                                          <div className="flex items-center gap-1">
-                                            <input 
-                                                type="number" id={`end-time-${index}`} value={segment.endTime.toFixed(3)}
-                                                onChange={(e) => onTranslationChange(index, { endTime: parseFloat(e.target.value) || 0 })}
-                                                onBlur={(e) => { e.target.value = (parseFloat(e.target.value) || 0).toFixed(3); }}
-                                                onClick={(e) => e.stopPropagation()} step="0.01" min={segment.startTime}
-                                                className="hacker-input w-24 p-1 text-center" disabled={isRegenerating}
+                                      
+                                        <div className="space-y-2">
+                                            {originalSegment && <p className="text-green-400/70 text-sm bg-black p-2 rounded-md font-sans"><strong>// SRC:</strong> "{originalSegment.text}"</p>}
+                                            <textarea
+                                                value={segment.text} onChange={(e) => onTranslationChange(index, { text: e.target.value })}
+                                                onClick={(e) => e.stopPropagation()} disabled={isRegenerating}
+                                                className="hacker-input w-full p-2 text-base rounded-md resize-y min-h-[80px]"
+                                                rows={3} lang="ar" dir="rtl" aria-label={`Edit translation for segment ${index + 1}`}
                                             />
-                                            <button onClick={(e) => { e.stopPropagation(); handleSetTime(index, 'end'); }} className="hacker-button-default p-1.5" title="Set end time from video"><LocateFixedIcon className="w-4 h-4" /></button>
-                                          </div>
                                         </div>
-                                      </div>
-                                      
-                                      {originalSegment && <p className="text-green-400/70 text-sm bg-black p-2 rounded-md font-sans">"{originalSegment.text}"</p>}
-                                      
-                                      <textarea
-                                          value={segment.text}
-                                          onChange={(e) => onTranslationChange(index, { text: e.target.value })}
-                                          onClick={(e) => e.stopPropagation()}
-                                          disabled={isRegenerating}
-                                          className="hacker-input w-full p-2 text-base rounded-md"
-                                          rows={3} lang="ar" dir="rtl"
-                                          aria-label={`Edit translation for segment ${index + 1}`}
-                                      />
 
-                                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                        <div className="flex-grow flex items-center gap-2">
-                                          <select
-                                              id={`voice-override-${index}`}
-                                              value={voiceOverrides[index] || 'default'}
-                                              onChange={(e) => onVoiceOverrideChange(index, e.target.value === 'default' ? null : e.target.value)}
-                                              disabled={isRegenerating}
-                                              className="hacker-select flex-grow text-sm p-2"
-                                              aria-label={`Override voice for segment ${index + 1}`}
-                                          >
-                                            <option value="default">Default ({defaultVoiceLabel})</option>
-                                            <optgroup label="Male Voices">
-                                              {TTS_VOICES.male.map(voice => <option key={voice.name} value={voice.name}>{voice.label}</option>)}
-                                            </optgroup>
-                                            <optgroup label="Female Voices">
-                                              {TTS_VOICES.female.map(voice => <option key={voice.name} value={voice.name}>{voice.label}</option>)}
-                                            </optgroup>
-                                          </select>
-                                          {isVoiceCloningActive && !voiceOverrides[index] && (
-                                              <div className="relative group flex-shrink-0">
-                                                  <ZapIcon className="w-5 h-5 text-cyan-400 animate-pulse" />
-                                                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 text-xs text-center text-white bg-black border border-[var(--border-color)] rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-10">
-                                                      Voice cloning sample will be used for this segment.
-                                                  </div>
-                                              </div>
-                                          )}
+                                        <div className="pt-3 border-t border-dashed border-gray-700 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                            <div className="flex-grow flex items-center gap-2">
+                                                <select id={`voice-override-${index}`} value={voiceOverrides[index] || 'default'} onChange={(e) => onVoiceOverrideChange(index, e.target.value === 'default' ? null : e.target.value)} disabled={isRegenerating} className="hacker-select flex-grow text-sm p-2" aria-label={`Override voice for segment ${index + 1}`}>
+                                                    <option value="default">Default ({defaultVoiceLabel})</option>
+                                                    <optgroup label="Male Voices">{TTS_VOICES.male.map(voice => <option key={voice.name} value={voice.name}>{voice.label}</option>)}</optgroup>
+                                                    <optgroup label="Female Voices">{TTS_VOICES.female.map(voice => <option key={voice.name} value={voice.name}>{voice.label}</option>)}</optgroup>
+                                                </select>
+                                                {isVoiceCloningActive && !voiceOverrides[index] && (
+                                                    <div className="relative group flex-shrink-0"><ZapIcon className="w-5 h-5 text-cyan-400 animate-pulse" /><div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 text-xs text-center text-white bg-black border border-[var(--border-color)] rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-10">Voice cloning sample will be used for this segment.</div></div>
+                                                )}
+                                            </div>
+                                            <button onClick={() => handleSegmentPreview(segment, voiceOverrides[index])} disabled={isRegenerating || previewingSegment === segment.startTime} className="hacker-button-default px-3 py-2 text-sm font-semibold rounded-md flex items-center justify-center gap-2 w-32 flex-shrink-0">
+                                                {previewingSegment === segment.startTime ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div> : <><PlayIcon className="w-4 h-4" /> Preview</>}
+                                            </button>
                                         </div>
-                                        <button onClick={() => handleSegmentPreview(segment, voiceOverrides[index])} disabled={isRegenerating || previewingSegment === segment.startTime} className="hacker-button-default px-3 py-2 text-sm font-semibold rounded-md flex items-center justify-center gap-2 w-32 flex-shrink-0">
-                                          {previewingSegment === segment.startTime ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div> : <><PlayIcon className="w-4 h-4" /> Preview</>}
-                                        </button>
-                                      </div>
+                                    </div>
                                   </li>
                               );
                           })}
@@ -851,9 +846,32 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({
                             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                                 <div className="flex-grow min-w-[180px]">
                                     <EditableSpeakerName speakerId={speaker.id} onRename={(newId) => handleRequestRename(speaker.id, newId)} isEditingDisabled={isRegenerating} />
-                                    <div className="text-xs text-gray-400 capitalize pl-1">
-                                        {speaker.gender}
-                                        {typeof speaker.confidence === 'number' && <span className="text-gray-500 ml-2">({(speaker.confidence * 100).toFixed(0)}% conf)</span>}
+                                    <div className="text-xs text-gray-400 pl-1 flex items-center gap-2 mt-1">
+                                        <button
+                                            onClick={() => onSpeakerGenderChange(speaker.id, 'male')}
+                                            disabled={speaker.gender === 'male' || isRegenerating}
+                                            className={`px-2 py-0.5 rounded text-xs transition-colors ${
+                                                speaker.gender === 'male'
+                                                    ? 'bg-cyan-500 text-black font-bold cursor-default'
+                                                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                            }`}
+                                            aria-pressed={speaker.gender === 'male'}
+                                        >
+                                            Male
+                                        </button>
+                                        <button
+                                            onClick={() => onSpeakerGenderChange(speaker.id, 'female')}
+                                            disabled={speaker.gender === 'female' || isRegenerating}
+                                            className={`px-2 py-0.5 rounded text-xs transition-colors ${
+                                                speaker.gender === 'female'
+                                                    ? 'bg-pink-500 text-black font-bold cursor-default'
+                                                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                            }`}
+                                            aria-pressed={speaker.gender === 'female'}
+                                        >
+                                            Female
+                                        </button>
+                                        {typeof speaker.confidence === 'number' && <span className="text-gray-500 ml-1">(Confidence: {(speaker.confidence * 100).toFixed(0)}%)</span>}
                                     </div>
                                 </div>
                                 <div className="flex-grow flex items-center gap-2 min-w-[250px]">

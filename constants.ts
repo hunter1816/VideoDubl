@@ -21,3 +21,11 @@ export const TTS_VOICES: {
         { name: 'Zephyr', label: 'Female Voice 2' },
     ],
 };
+
+export const EMOTION_OPTIONS: { value: string; label: string; labelAr: string }[] = [
+  { value: 'neutral', label: 'Neutral', labelAr: 'محايد' },
+  { value: 'happy', label: 'Happy', labelAr: 'سعيد' },
+  { value: 'sad', label: 'Sad', labelAr: 'حزين' },
+  { value: 'angry', label: 'Angry', labelAr: 'غاضب' },
+  { value: 'surprised', label: 'Surprised', labelAr: 'متفاجئ' },
+];
