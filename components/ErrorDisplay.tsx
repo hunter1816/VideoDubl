@@ -1,4 +1,5 @@
 import React from 'react';
+import { useI18n } from '../i18n';
 
 interface ErrorDisplayProps {
   message: string;
@@ -12,11 +13,12 @@ const AlertTriangleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 
 
 export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({ message }) => {
+  const { t } = useI18n();
   return (
     <div className="mt-8 p-4 bg-black border border-red-500 rounded-md flex items-start space-x-3 shadow-[0_0_15px_rgba(255,0,0,0.5)]">
       <AlertTriangleIcon className="h-6 w-6 text-red-400 flex-shrink-0 mt-1" />
       <div>
-        <h3 className="font-semibold text-red-300">[ SYSTEM ERROR ]</h3>
+        <h3 className="font-semibold text-red-300">{t('systemError')}</h3>
         <p className="text-red-400">&gt; {message}</p>
       </div>
     </div>

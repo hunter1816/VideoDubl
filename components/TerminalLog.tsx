@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { ProcessStep, Step } from '../types';
+import { useI18n } from '../i18n';
 
 interface TerminalLogProps {
   currentStep: ProcessStep;
@@ -7,21 +8,22 @@ interface TerminalLogProps {
   error: string | null;
 }
 
-const BOOT_SEQUENCE = [
-  "Booting SYS.Dubber.v2.5 kernel...",
-  "Initializing AI core...",
-  "Loading neural network models...",
-  "Establishing secure connection to Gemini API...",
-  "Connection successful. Awaiting input.",
-  "---"
-];
-
 const getTimestamp = () => new Date().toLocaleTimeString('en-US', { hour12: false });
 
 export const TerminalLog: React.FC<TerminalLogProps> = ({ currentStep, steps, error }) => {
+  const { t } = useI18n();
   const [logLines, setLogLines] = useState<string[]>([]);
   const logContainerRef = useRef<HTMLDivElement>(null);
   const stepStatusRef = useRef<Record<string, 'pending' | 'running' | 'done' | 'error'>>({});
+
+  const BOOT_SEQUENCE = [
+    t('bootSeq1'),
+    t('bootSeq2'),
+    t('bootSeq3'),
+    t('bootSeq4'),
+    t('bootSeq5'),
+    t('bootSeq6'),
+  ];
 
   // Initialize step statuses
   useEffect(() => {
@@ -43,7 +45,7 @@ export const TerminalLog: React.FC<TerminalLogProps> = ({ currentStep, steps, er
     }, 150);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [BOOT_SEQUENCE]);
 
   // Effect to update logs based on currentStep
   useEffect(() => {
@@ -102,7 +104,7 @@ export const TerminalLog: React.FC<TerminalLogProps> = ({ currentStep, steps, er
         }
     }
 
-  }, [currentStep, steps, error]);
+  }, [currentStep, steps, error, t]);
 
   // Auto-scroll effect
   useEffect(() => {
@@ -133,7 +135,7 @@ export const TerminalLog: React.FC<TerminalLogProps> = ({ currentStep, steps, er
       </div>
       <div className="mt-2 border-t border-[var(--border-color)] pt-2">
         <p className="text-green-400 blinking-cursor">
-          {currentStep === 'analyzing' || currentStep === 'translating' || currentStep === 'dubbing' ? 'Executing...' : 'Awaiting command...'}
+          {currentStep === 'analyzing' || currentStep === 'translating' || currentStep === 'dubbing' ? t('executing') : t('awaitingCommand')}
         </p>
       </div>
     </div>

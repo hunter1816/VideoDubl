@@ -1,4 +1,5 @@
 import React from 'react';
+import { useI18n } from '../i18n';
 
 const FilmIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   // FIX: Corrected the malformed viewBox attribute from '0 0 24" 24"' to '0 0 24 24'. This was causing a cascade of JSX parsing errors.
@@ -9,16 +10,17 @@ const FilmIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 
 
 export const Header: React.FC = () => {
+  const { t } = useI18n();
   return (
     <header className="text-center">
       <div className="flex items-center justify-center gap-4 mb-4">
         <FilmIcon className="w-10 h-10 text-green-400"/>
         <h1 className="hacker-title text-4xl sm:text-5xl font-bold tracking-widest text-green-400">
-          AI Video Dubber
+          {t('appTitle')}
         </h1>
       </div>
       <p className="text-lg text-green-400/70 max-w-2xl mx-auto">
-        &gt; أدخل ملف الفيديو لتحليل وبدء عملية الدبلجة الفورية. النظام فعال.
+        {t('appSubtitle')}
       </p>
     </header>
   );

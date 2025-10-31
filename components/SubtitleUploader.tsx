@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { useI18n } from '../i18n';
 
 interface SubtitleUploaderProps {
   selectedFile: File | null;
@@ -23,6 +24,7 @@ const XIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 );
 
 export const SubtitleUploader: React.FC<SubtitleUploaderProps> = ({ selectedFile, onFileChange, disabled }) => {
+  const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -39,8 +41,8 @@ export const SubtitleUploader: React.FC<SubtitleUploaderProps> = ({ selectedFile
 
   return (
     <div className={`${disabled ? 'cursor-not-allowed' : ''}`}>
-      <h3 className="text-lg font-semibold mb-2 text-green-300 tracking-wider">[ UPLOAD SUBTITLES ] <span className="text-sm text-green-400/50">(Optional)</span></h3>
-      <p className="text-sm text-green-400/70 mb-3">// Provide an SRT file to use its text for dubbing.</p>
+      <h3 className="text-lg font-semibold mb-2 text-green-300 tracking-wider">{t('uploadSubtitles')} <span className="text-sm text-green-400/50">{t('optional')}</span></h3>
+      <p className="text-sm text-green-400/70 mb-3">{t('uploadSubtitlesDesc')}</p>
       
       {selectedFile ? (
         <div className="flex items-center justify-between w-full h-16 px-4 bg-green-900/20 border-2 border-[var(--border-color)] rounded-md">
@@ -64,7 +66,7 @@ export const SubtitleUploader: React.FC<SubtitleUploaderProps> = ({ selectedFile
           <span className="flex items-center space-x-2">
             <FileTextIcon className="w-6 h-6 text-green-400/70" />
             <span className="font-medium text-green-400/70">
-              Select SRT subtitle file...
+              {t('selectSrtFile')}
             </span>
           </span>
           <input 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useI18n } from '../i18n';
 
 interface LanguageConfirmationModalProps {
   detectedLanguage: string;
@@ -13,6 +14,7 @@ const AlertTriangleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 );
 
 export const LanguageConfirmationModal: React.FC<LanguageConfirmationModalProps> = ({ detectedLanguage, onConfirm, onCancel }) => {
+  const { t } = useI18n();
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 animate-fade-in" aria-modal="true" role="dialog">
       <div className="hacker-container rounded-md shadow-xl p-6 sm:p-8 max-w-md w-full border border-yellow-500/50 shadow-[0_0_20px_rgba(255,255,0,0.3)]">
@@ -20,30 +22,30 @@ export const LanguageConfirmationModal: React.FC<LanguageConfirmationModalProps>
             <div className="bg-yellow-900/50 p-2 rounded-full">
                 <AlertTriangleIcon className="h-8 w-8 text-yellow-400" />
             </div>
-            <h2 className="text-2xl font-bold text-yellow-300 tracking-wider">[ CONFIRMATION REQUIRED ]</h2>
+            <h2 className="text-2xl font-bold text-yellow-300 tracking-wider">{t('confirmRequired')}</h2>
         </div>
         <p className="mt-4 text-green-300">
-          Detected language is{' '}
+          {t('detectedLanguage')}{' '}
           <strong className="font-semibold text-yellow-400">{detectedLanguage}</strong>.
         </p>
         <p className="mt-2 text-green-400/70 text-sm">
-          // System optimized for English input. Translation quality may vary for other languages.
+          {t('detectedLanguageWarning')}
         </p>
         <p className="mt-4 font-medium text-green-200">
-          &gt; Proceed with dubbing to Arabic?
+          {t('proceedPrompt')}
         </p>
         <div className="mt-6 flex justify-end space-x-4">
           <button
             onClick={onCancel}
             className="hacker-button-default px-6 py-2 text-sm font-semibold rounded-md"
           >
-            Abort
+            {t('abort')}
           </button>
           <button
             onClick={onConfirm}
             className="hacker-button-primary active px-6 py-2 text-sm font-semibold rounded-md"
           >
-            Proceed
+            {t('proceed')}
           </button>
         </div>
       </div>

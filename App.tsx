@@ -9,12 +9,15 @@ import { ResultDisplay } from './components/ResultDisplay';
 import { DialectSelector } from './components/DialectSelector';
 import { TargetLanguageSelector } from './components/TargetLanguageSelector';
 import { LanguageConfirmationModal } from './components/LanguageConfirmationModal';
+import { LanguageSwitcher } from './components/LanguageSwitcher';
 import { analyzeVideo, translateText, generateDubbedAudio, diarizeSpeakersAndDetectEmotion } from './services/geminiService';
 import { extractAudioFromVideoAsWavBlob } from './utils/media';
 import { parseSrt } from './utils/subtitleParser';
 import type { ProcessStep, AnalysisResult, SpeakerProfile, TranscriptionSegment, Dialect, TargetLanguage } from './types';
 import type { ParsedSubtitleSegment } from './utils/subtitleParser';
+// FIX: Import TTS_VOICES to resolve reference errors throughout the component.
 import { STEPS, TTS_VOICES } from './constants';
+import { useI18n } from './i18n';
 
 // Extend AnalysisResult type locally for component state
 type AppAnalysisResult = AnalysisResult & { translatedTranscription?: TranscriptionSegment[], usedSubtitles?: boolean };
@@ -27,6 +30,7 @@ const AlertTriangleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 
 
 const App: React.FC = () => {
+  const { t, dir } = useI18n();
   const [isApiKeySet, setIsApiKeySet] = useState(false);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [subtitleFile, setSubtitleFile] = useState<File | null>(null);
@@ -246,8 +250,10 @@ const App: React.FC = () => {
 
         const initialVoiceSelection: Record<string, string> = {};
         analysis.speakers.forEach(speaker => {
-            if (speaker.gender === 'male') initialVoiceSelection[speaker.id] = TTS_VOICES.male[0].name;
-            else if (speaker.gender === 'female') initialVoiceSelection[speaker.id] = TTS_VOICES.female[0].name;
+            const defaultMale = TTS_VOICES.male[0]?.name;
+            const defaultFemale = TTS_VOICES.female[0]?.name;
+            if (speaker.gender === 'male' && defaultMale) initialVoiceSelection[speaker.id] = defaultMale;
+            else if (speaker.gender === 'female' && defaultFemale) initialVoiceSelection[speaker.id] = defaultFemale;
         });
         setVoiceSelection(initialVoiceSelection);
         setAnalysisResult(analysis);
@@ -268,8 +274,10 @@ const App: React.FC = () => {
 
           const initialVoiceSelection: Record<string, string> = {};
           analysis.speakers.forEach(speaker => {
-              if (speaker.gender === 'male') initialVoiceSelection[speaker.id] = TTS_VOICES.male[0].name;
-              else if (speaker.gender === 'female') initialVoiceSelection[speaker.id] = TTS_VOICES.female[0].name;
+              const defaultMale = TTS_VOICES.male[0]?.name;
+              const defaultFemale = TTS_VOICES.female[0]?.name;
+              if (speaker.gender === 'male' && defaultMale) initialVoiceSelection[speaker.id] = defaultMale;
+              else if (speaker.gender === 'female' && defaultFemale) initialVoiceSelection[speaker.id] = defaultFemale;
           });
           setVoiceSelection(initialVoiceSelection);
           
@@ -371,7 +379,7 @@ const App: React.FC = () => {
 
         const newSegment: TranscriptionSegment = {
             speakerId: analysisResult?.speakers[0]?.id ?? 'Speaker 1',
-            text: 'أدخل النص المترجم هنا...', // Placeholder text in Arabic
+            text: t('newSegmentPlaceholder'),
             startTime: latestTime + 0.1, // Add a small gap
             endTime: latestTime + 2.1, // Default 2 second duration
             emotion: 'neutral',
@@ -523,13 +531,15 @@ const App: React.FC = () => {
     });
 
     const newDefaultVoice = newGender === 'male' 
-        ? TTS_VOICES.male[0].name 
-        : TTS_VOICES.female[0].name;
+        ? TTS_VOICES.male[0]?.name 
+        : TTS_VOICES.female[0]?.name;
 
-    setVoiceSelection(prev => ({
-        ...prev,
-        [speakerId]: newDefaultVoice
-    }));
+    if (newDefaultVoice) {
+        setVoiceSelection(prev => ({
+            ...prev,
+            [speakerId]: newDefaultVoice
+        }));
+    }
   };
 
   if (!isApiKeySet) {
@@ -539,9 +549,9 @@ const App: React.FC = () => {
             <div className="p-6 bg-black border border-red-500 rounded-md flex items-start space-x-4 shadow-[0_0_15px_rgba(255,0,0,0.5)]">
               <AlertTriangleIcon className="h-8 w-8 text-red-400 flex-shrink-0 mt-1" />
               <div>
-                <h3 className="font-semibold text-xl text-red-300">[ CONFIGURATION ERROR ]</h3>
-                <p className="text-red-400 mt-2">&gt; Connection to backend services failed.</p>
-                <p className="text-green-400/70 mt-1 text-sm">// The application requires proper environment configuration to function. Please ensure all necessary service keys are set up correctly by the host environment.</p>
+                <h3 className="font-semibold text-xl text-red-300">{t('configError')}</h3>
+                <p className="text-red-400 mt-2">{t('configErrorMsg')}</p>
+                <p className="text-green-400/70 mt-1 text-sm">{t('configErrorDesc')}</p>
               </div>
             </div>
         </div>
@@ -580,9 +590,11 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8">
-      <div className="w-full max-w-4xl mx-auto">
+    <div className="min-h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8" dir={dir}>
+      <div className="w-full max-w-4xl mx-auto relative">
         
+        <LanguageSwitcher />
+
         {showLanguageConfirmation && analysisResult && (
             <LanguageConfirmationModal
                 detectedLanguage={analysisResult.language}
@@ -621,8 +633,8 @@ const App: React.FC = () => {
                         />
                     </div>
                     <div className="pt-6 border-t border-[var(--border-color)]">
-                      <h3 className="text-lg font-semibold mb-2 text-green-300 tracking-wider">[ UPLOAD VIDEO ]</h3>
-                      <p className="text-sm text-green-400/70 mb-3">// Upload a subtitle file first (optional), then upload video to start.</p>
+                      <h3 className="text-lg font-semibold mb-2 text-green-300 tracking-wider">{t('uploadVideo')}</h3>
+                      <p className="text-sm text-green-400/70 mb-3">{t('uploadVideoDesc')}</p>
                       <FileUploader onFileSelect={handleVideoFileChange} disabled={isInitialProcessing} />
                     </div>
                     <VoiceUploader
@@ -634,7 +646,7 @@ const App: React.FC = () => {
                 )}
               </div>
 
-              {isInitialProcessing && <TerminalLog currentStep={currentStep} steps={STEPS} error={error} />}
+              {isInitialProcessing && <TerminalLog currentStep={currentStep} steps={STEPS.map(s=> ({key: s.key, label: t(s.labelKey)}))} error={error} />}
               {currentStep === 'error' && !analysisResult && error && <ErrorDisplay message={error} />}
             </>
           )}

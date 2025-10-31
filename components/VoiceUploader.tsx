@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { useI18n } from '../i18n';
 
 interface VoiceUploaderProps {
   selectedFile: File | null;
@@ -25,6 +26,7 @@ const FileIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 );
 
 export const VoiceUploader: React.FC<VoiceUploaderProps> = ({ selectedFile, onFileChange, disabled }) => {
+  const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,8 +43,8 @@ export const VoiceUploader: React.FC<VoiceUploaderProps> = ({ selectedFile, onFi
 
   return (
     <div className={`pt-6 border-t border-[var(--border-color)] ${disabled ? 'cursor-not-allowed' : ''}`}>
-      <h3 className="text-lg font-semibold mb-2 text-green-300 tracking-wider">[ VOICE CLONING SAMPLE ] <span className="text-sm text-green-400/50">(Optional)</span></h3>
-      <p className="text-sm text-green-400/70 mb-3">// Upload 15-30s audio for high-fidelity voice cloning.</p>
+      <h3 className="text-lg font-semibold mb-2 text-green-300 tracking-wider">{t('voiceCloningSample')} <span className="text-sm text-green-400/50">{t('optional')}</span></h3>
+      <p className="text-sm text-green-400/70 mb-3">{t('voiceCloningDesc')}</p>
       
       {selectedFile ? (
         <div className="flex items-center justify-between w-full h-16 px-4 bg-green-900/20 border-2 border-[var(--border-color)] rounded-md">
@@ -66,7 +68,7 @@ export const VoiceUploader: React.FC<VoiceUploaderProps> = ({ selectedFile, onFi
           <span className="flex items-center space-x-2">
             <MicIcon className="w-6 h-6 text-green-400/70" />
             <span className="font-medium text-green-400/70">
-              Select audio sample...
+              {t('selectAudioSample')}
             </span>
           </span>
           <input 

@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react';
+import { useI18n } from '../i18n';
 
 interface FileUploaderProps {
   onFileSelect: (file: File | null) => void;
@@ -14,6 +15,7 @@ const UploadCloudIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 
 export const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelect, disabled }) => {
   const [isDragging, setIsDragging] = useState(false);
+  const { t } = useI18n();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -61,7 +63,8 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelect, disabl
         <span className="flex items-center space-x-2">
           <UploadCloudIcon className="w-8 h-8 text-green-400/70" />
           <span className="font-medium text-green-400/70">
-            Drop video file here, or <span className="text-green-400 underline">browse system</span>
+            {t('dropVideo')}{' '}
+            <span className="text-green-400 underline">{t('browseSystem')}</span>
           </span>
         </span>
         <input type="file" name="file_upload" className="hidden" accept="video/*" onChange={handleFileChange} disabled={disabled} />
